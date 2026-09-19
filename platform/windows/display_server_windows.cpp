@@ -8056,6 +8056,10 @@ DisplayServerWindows::DisplayServerWindows(const String &p_rendering_driver, Dis
 	fallback_to_vulkan = true; // Always enable fallback if engine was built w/o other driver support.
 #endif
 
+	if (OS::get_singleton()->get_current_rendering_method() == "yutrel") {
+		fallback_to_d3d12 = false;
+	}
+
 	String rendering_drivers[2];
 	uint32_t rendering_driver_count = 0;
 
@@ -8149,7 +8153,7 @@ DisplayServerWindows::DisplayServerWindows(const String &p_rendering_driver, Dis
 #ifdef GLES3_ENABLED
 	if (rendering_driver_failed) {
 		bool fallback_to_opengl3 = GLOBAL_GET("rendering/rendering_device/fallback_to_opengl3");
-		if (fallback_to_opengl3) {
+		if (fallback_to_opengl3 && OS::get_singleton()->get_current_rendering_method() != "yutrel") {
 			tested_drivers.set_flag(DRIVER_ID_COMPAT_OPENGL3);
 			WARN_PRINT("Your video card drivers seem not to support Direct3D 12 or Vulkan, switching to OpenGL 3.");
 			rendering_driver = "opengl3";

@@ -37,6 +37,7 @@
 #include "servers/display/display_server.h"
 #include "servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.h"
 #include "servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.h"
+#include "servers/rendering/renderer_rd/yutrel/render_yutrel.h"
 #include "servers/rendering/rendering_server_types.h"
 
 void RendererCompositorRD::blit_render_targets_to_screen(DisplayServerEnums::WindowID p_screen, const RenderingServerTypes::BlitToScreen *p_render_targets, int p_amount) {
@@ -373,7 +374,9 @@ RendererCompositorRD::RendererCompositorRD() {
 	String rendering_method = OS::get_singleton()->get_current_rendering_method();
 	uint64_t textures_per_stage = RD::get_singleton()->limit_get(RD::LIMIT_MAX_TEXTURES_PER_SHADER_STAGE);
 
-	if (rendering_method == "mobile" || textures_per_stage < 48) {
+	if (rendering_method == "yutrel") {
+		scene = memnew(RendererSceneRenderImplementation::RenderYutrel());
+	} else if (rendering_method == "mobile" || textures_per_stage < 48) {
 		if (rendering_method == "forward_plus") {
 			WARN_PRINT_ONCE("Platform supports less than 48 textures per stage which is less than required by the Clustered renderer. Defaulting to Mobile renderer.");
 		}

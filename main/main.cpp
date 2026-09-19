@@ -2489,6 +2489,9 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 	// Start with RenderingDevice-based backends.
 #ifdef RD_ENABLED
 	renderer_hints = "forward_plus,mobile";
+#ifdef VULKAN_ENABLED
+	renderer_hints += ",yutrel";
+#endif
 	default_renderer_mobile = "mobile";
 #endif
 
@@ -2512,6 +2515,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 	if (!rendering_method.is_empty()) {
 		if (rendering_method != "forward_plus" &&
 				rendering_method != "mobile" &&
+				rendering_method != "yutrel" &&
 				rendering_method != "gl_compatibility" &&
 				rendering_method != "dummy") {
 			OS::get_singleton()->print("Unknown rendering method '%s', aborting.\nValid options are ",
@@ -2597,6 +2601,11 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		// Now validate whether the selected driver matches with the renderer.
 		bool valid_combination = false;
 		Vector<String> available_drivers;
+#ifdef VULKAN_ENABLED
+		if (rendering_method == "yutrel") {
+			available_drivers.push_back("vulkan");
+		}
+#endif
 		if (rendering_method == "forward_plus" || rendering_method == "mobile") {
 #ifdef VULKAN_ENABLED
 			available_drivers.push_back("vulkan");
@@ -2668,6 +2677,19 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 
 	// always convert to lower case for consistency in the code
 	rendering_driver = rendering_driver.to_lower();
+
+	// Validate project settings too, after both the method and driver are resolved.
+	if (rendering_method == "yutrel") {
+#ifdef VULKAN_ENABLED
+		if (rendering_driver != "vulkan") {
+			OS::get_singleton()->print("The Yutrel rendering method requires the Vulkan driver, got '%s'.\n", rendering_driver.utf8().get_data());
+			goto error;
+		}
+#else
+		OS::get_singleton()->print("The Yutrel rendering method requires an engine built with Vulkan support.\n");
+		goto error;
+#endif
+	}
 
 	OS::get_singleton()->set_current_rendering_driver_name(rendering_driver, rendering_driver_source);
 	OS::get_singleton()->set_current_rendering_method(rendering_method, rendering_method_source);

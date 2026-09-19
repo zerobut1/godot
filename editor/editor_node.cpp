@@ -6071,6 +6071,8 @@ String EditorNode::_get_system_info() const {
 		rendering_method = "Forward+";
 	} else if (rendering_method == "mobile") {
 		rendering_method = "Mobile";
+	} else if (rendering_method == "yutrel") {
+		rendering_method = "Yutrel";
 	} else if (rendering_method == "gl_compatibility") {
 		rendering_method = "Compatibility";
 	}
@@ -7787,7 +7789,7 @@ void EditorNode::_renderer_selected(int p_index) {
 		video_restart_dialog->disconnect(SceneStringName(confirmed), callable_mp(this, &EditorNode::_set_renderer_name_save_and_restart));
 	}
 
-	const String mobile_rendering_method = rendering_method == "forward_plus" ? "mobile" : rendering_method;
+	const String mobile_rendering_method = rendering_method == "yutrel" ? String(GLOBAL_GET("rendering/renderer/rendering_method.mobile")) : (rendering_method == "forward_plus" ? "mobile" : rendering_method);
 	const String web_rendering_method = "gl_compatibility";
 	video_restart_dialog->connect(SceneStringName(confirmed), callable_mp(this, &EditorNode::_set_renderer_name_save_and_restart).bind(rendering_method));
 	video_restart_dialog->set_text(
@@ -7799,6 +7801,9 @@ void EditorNode::_renderer_selected(int p_index) {
 }
 
 String EditorNode::_to_rendering_method_display_name(const String &p_rendering_method) const {
+	if (p_rendering_method == "yutrel") {
+		return "Yutrel";
+	}
 	if (p_rendering_method == "forward_plus") {
 		return TTR("Forward+");
 	}
@@ -7813,6 +7818,10 @@ String EditorNode::_to_rendering_method_display_name(const String &p_rendering_m
 
 void EditorNode::_set_renderer_name_save_and_restart(const String &p_rendering_method) {
 	ProjectSettings::get_singleton()->set("rendering/renderer/rendering_method", p_rendering_method);
+	if (p_rendering_method == "yutrel") {
+		ProjectSettings::get_singleton()->set("rendering/rendering_device/driver", "vulkan");
+		ProjectSettings::get_singleton()->set("rendering/rendering_device/driver.windows", "vulkan");
+	}
 
 	if (p_rendering_method == "mobile" || p_rendering_method == "gl_compatibility") {
 		// Also change the mobile override if changing to a compatible renderer.
