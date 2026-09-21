@@ -1,0 +1,71 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+import json
+import os
+
+Import("env")
+Import("env_modules")
+
+
+def fail(message):
+    print_error("Slang module: " + message)
+    Exit(255)
+
+
+build_dir = env["slang_build_dir"]
+if not os.path.isabs(build_dir):
+    build_dir = os.path.join(env.Dir("#").abspath, build_dir)
+build_dir = os.path.normpath(build_dir)
+
+manifest_path = os.path.join(build_dir, "slang-build.json")
+if not os.path.isfile(manifest_path):
+    fail(
+        'build manifest not found at "{}". Run "python misc/scripts/build_slang.py" first, '
+        "or set slang_build_dir=<path>.".format(manifest_path)
+    )
+
+try:
+    with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+        manifest = json.load(manifest_file)
+except (OSError, UnicodeError, json.JSONDecodeError) as error:
+    fail('cannot read UTF-8 build manifest "{}": {}'.format(manifest_path, error))
+
+if manifest.get("schema_version") != 1:
+    fail('unsupported manifest schema in "{}"; rebuild Slang with the current script.'.format(manifest_path))
+if manifest.get("generator") != "Visual Studio 18 2026":
+    fail("the static libraries were not built with the Visual Studio 2026 generator.")
+if manifest.get("runtime_library") != "MultiThreaded (/MT)":
+    fail("the static libraries do not use the required /MT runtime.")
+
+include_dir = manifest.get("include_dir", "")
+if not os.path.isfile(os.path.join(include_dir, "slang.h")):
+    fail('Slang headers are missing from "{}".'.format(include_dir))
+
+required_libraries = (
+    "slang-compiler.lib",
+    "compiler-core.lib",
+    "core.lib",
+    "miniz.lib",
+    "lz4.lib",
+    "cmark-gfm.lib",
+)
+manifest_libraries = manifest.get("libraries", {})
+library_paths = []
+for library_name in required_libraries:
+    library_path = manifest_libraries.get(library_name, "")
+    if not os.path.isfile(library_path):
+        fail('required static library "{}" is missing at "{}".'.format(library_name, library_path))
+    library_paths.append(library_path)
+
+env_slang = env_modules.Clone()
+env_slang.Prepend(CPPPATH=[include_dir])
+env_slang.Append(CPPDEFINES=["SLANG_STATIC"])
+
+module_obj = []
+env_slang.add_source_files(module_obj, "*.cpp")
+env.modules_sources += module_obj
+
+library_nodes = [env.File(path) for path in library_paths]
+env.Append(LIBS=library_nodes)
+env.Depends(module_obj, [env.File(manifest_path)] + library_nodes)
