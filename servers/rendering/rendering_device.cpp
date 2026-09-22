@@ -48,6 +48,9 @@
 #ifdef MODULE_GLSLANG_ENABLED
 #include "modules/glslang/shader_compile.h"
 #endif
+#ifdef MODULE_SLANG_ENABLED
+#include "modules/slang/slang_compiler.h"
+#endif
 
 #define FORCE_SEPARATE_PRESENT_QUEUE 0
 #define PRINT_FRAMEBUFFER_FORMAT 0
@@ -232,6 +235,65 @@ Vector<uint8_t> RenderingDevice::shader_compile_spirv_from_source(ShaderStage p_
 			ShaderLanguageVersion language_version = driver->get_shader_container_format().get_shader_language_version();
 			ShaderSpirvVersion spirv_version = driver->get_shader_container_format().get_shader_spirv_version();
 			return compile_glslang_shader(p_stage, ShaderIncludeDB::parse_include_files(p_source_code), language_version, spirv_version, r_error);
+		}
+#endif
+#ifdef MODULE_SLANG_ENABLED
+		case ShaderLanguage::SHADER_LANGUAGE_HLSL: {
+			SlangCompilerService::ShaderStage slang_stage;
+			switch (p_stage) {
+				case SHADER_STAGE_VERTEX:
+					slang_stage = SlangCompilerService::ShaderStage::VERTEX;
+					break;
+				case SHADER_STAGE_FRAGMENT:
+					slang_stage = SlangCompilerService::ShaderStage::FRAGMENT;
+					break;
+				case SHADER_STAGE_TESSELATION_CONTROL:
+					slang_stage = SlangCompilerService::ShaderStage::TESSELLATION_CONTROL;
+					break;
+				case SHADER_STAGE_TESSELATION_EVALUATION:
+					slang_stage = SlangCompilerService::ShaderStage::TESSELLATION_EVALUATION;
+					break;
+				case SHADER_STAGE_COMPUTE:
+					slang_stage = SlangCompilerService::ShaderStage::COMPUTE;
+					break;
+				case SHADER_STAGE_RAYGEN:
+					slang_stage = SlangCompilerService::ShaderStage::RAY_GENERATION;
+					break;
+				case SHADER_STAGE_ANY_HIT:
+					slang_stage = SlangCompilerService::ShaderStage::ANY_HIT;
+					break;
+				case SHADER_STAGE_CLOSEST_HIT:
+					slang_stage = SlangCompilerService::ShaderStage::CLOSEST_HIT;
+					break;
+				case SHADER_STAGE_MISS:
+					slang_stage = SlangCompilerService::ShaderStage::MISS;
+					break;
+				case SHADER_STAGE_INTERSECTION:
+					slang_stage = SlangCompilerService::ShaderStage::INTERSECTION;
+					break;
+				default:
+					if (r_error != nullptr) {
+						*r_error = "The requested RenderingDevice shader stage is not supported by the Slang integration.";
+					}
+					return Vector<uint8_t>();
+			}
+
+			Vector<uint8_t> spirv;
+			String diagnostics;
+			const Error error = SlangCompilerService::compile_hlsl_to_spirv(
+					p_source_code,
+					"rendering_device_shader.hlsl",
+					"main",
+					slang_stage,
+					spirv,
+					diagnostics);
+			if (r_error != nullptr) {
+				*r_error = diagnostics;
+			}
+			if (error != OK) {
+				return Vector<uint8_t>();
+			}
+			return spirv;
 		}
 #endif
 		default:

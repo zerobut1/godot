@@ -1,0 +1,13 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+
+if "HLSL_HEADER" in env["BUILDERS"]:
+    hlsl_files = [str(f) for f in Glob("*.hlsl")]
+    hlsl_include_files = [str(f) for f in Glob("*.hlsli")]
+
+    env.Depends([f + ".gen.h" for f in hlsl_files], hlsl_include_files + ["#hlsl_builders.py"])
+
+    for hlsl_file in hlsl_files:
+        env.HLSL_HEADER(hlsl_file)

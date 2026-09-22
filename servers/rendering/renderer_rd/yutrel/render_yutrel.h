@@ -32,11 +32,13 @@
 
 #include "servers/rendering/renderer_geometry_instance.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
+#include "servers/rendering/renderer_rd/shaders/yutrel/triangle.hlsl.gen.h"
 
 namespace RendererSceneRenderImplementation {
 
 // Bootstrap adapter: shared RD initialization is retained, but no Forward renderer
-// or spatial material shader is used. Only the final viewport target is cleared.
+// or spatial material shader is used. A runtime-compiled HLSL triangle is drawn to
+// the final viewport target.
 class RenderYutrel : public RendererSceneRenderRD {
 	class GeometryInstanceYutrel : public RenderGeometryInstanceBase {
 		Data instance_data;
@@ -59,7 +61,11 @@ class RenderYutrel : public RendererSceneRenderRD {
 		void set_softshadow_projector_pairing(bool p_softshadow, bool p_projector) override {}
 	};
 
-	bool first_frame_rendered = false;
+	TriangleShaderRD triangle_shader;
+	RID triangle_shader_version;
+	RID triangle_pipeline;
+	RD::FramebufferFormatID triangle_framebuffer_format = RD::INVALID_FORMAT_ID;
+	RD::TextureSamples triangle_sample_count = RD::TEXTURE_SAMPLES_1;
 
 protected:
 	void setup_render_buffer_data(Ref<RenderSceneBuffersRD> p_render_buffers) override {}

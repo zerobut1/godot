@@ -148,8 +148,9 @@ void ShaderRD::_add_stage(const char *p_code, StageType p_stage_type) {
 	}
 }
 
-void ShaderRD::setup(const char *p_vertex_code, const char *p_fragment_code, const char *p_compute_code, const char *p_name) {
+void ShaderRD::setup(const char *p_vertex_code, const char *p_fragment_code, const char *p_compute_code, const char *p_name, RD::ShaderLanguage p_shader_language) {
 	name = p_name;
+	shader_language = p_shader_language;
 
 	if (p_compute_code) {
 		_add_stage(p_compute_code, STAGE_TYPE_COMPUTE);
@@ -169,6 +170,8 @@ void ShaderRD::setup(const char *p_vertex_code, const char *p_fragment_code, con
 	tohash.append(GODOT_VERSION_NUMBER);
 	tohash.append("[GodotVersionHash]");
 	tohash.append(GODOT_VERSION_HASH);
+	tohash.append("[ShaderLanguage]");
+	tohash.append(itos(shader_language));
 	tohash.append("[Vertex]");
 	tohash.append(p_vertex_code ? p_vertex_code : "");
 	tohash.append("[Fragment]");
@@ -181,8 +184,9 @@ void ShaderRD::setup(const char *p_vertex_code, const char *p_fragment_code, con
 	base_sha256 = tohash.as_string().sha256_text();
 }
 
-void ShaderRD::setup_raytracing(const char *p_raygen_code, const char *p_any_hit_code, const char *p_closest_hit_code, const char *p_miss_code, const char *p_intersection_code, const char *p_name) {
+void ShaderRD::setup_raytracing(const char *p_raygen_code, const char *p_any_hit_code, const char *p_closest_hit_code, const char *p_miss_code, const char *p_intersection_code, const char *p_name, RD::ShaderLanguage p_shader_language) {
 	name = p_name;
+	shader_language = p_shader_language;
 
 	pipeline_type = RD::PIPELINE_TYPE_RAYTRACING;
 	if (p_raygen_code) {
@@ -206,6 +210,8 @@ void ShaderRD::setup_raytracing(const char *p_raygen_code, const char *p_any_hit
 	tohash.append(GODOT_VERSION_NUMBER);
 	tohash.append("[GodotVersionHash]");
 	tohash.append(GODOT_VERSION_HASH);
+	tohash.append("[ShaderLanguage]");
+	tohash.append(itos(shader_language));
 	tohash.append("[Raygen]");
 	tohash.append(p_raygen_code ? p_raygen_code : "");
 	tohash.append("[AnyHit]");
@@ -294,8 +300,10 @@ void ShaderRD::_build_variant_code(StringBuilder &builder, uint32_t p_variant, c
 					builder.append(String("#define ") + String(E.key) + "_CODE_USED\n");
 				}
 				builder.append(String("#define RENDER_DRIVER_") + OS::get_singleton()->get_current_rendering_driver_name().to_upper() + "\n");
-				builder.append("#define samplerExternalOES sampler2D\n");
-				builder.append("#define textureExternalOES texture2D\n");
+				if (shader_language == RD::SHADER_LANGUAGE_GLSL) {
+					builder.append("#define samplerExternalOES sampler2D\n");
+					builder.append("#define textureExternalOES texture2D\n");
+				}
 			} break;
 			case StageTemplate::Chunk::TYPE_MATERIAL_UNIFORMS: {
 				builder.append(p_version->uniforms.get_data()); //uniforms (same for vertex and fragment)
@@ -410,7 +418,7 @@ void ShaderRD::_compile_variant(uint32_t p_variant, CompileData p_data) {
 	}
 
 	Vector<String> variant_stage_sources = _build_variant_stage_sources(variant, p_data);
-	Vector<RD::ShaderStageSPIRVData> variant_stages = compile_stages(variant_stage_sources, dynamic_buffers);
+	Vector<RD::ShaderStageSPIRVData> variant_stages = compile_stages(variant_stage_sources, dynamic_buffers, shader_language);
 	ERR_FAIL_COND(variant_stages.is_empty());
 
 	Vector<uint8_t> shader_data = RD::get_singleton()->shader_compile_binary_from_spirv(variant_stages, name + ":" + itos(variant));
@@ -1153,7 +1161,7 @@ void ShaderRD::set_shader_cache_save_debug(bool p_enable) {
 	shader_cache_save_debug = p_enable;
 }
 
-Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &p_stage_sources, const Vector<uint64_t> &p_dynamic_buffers) {
+Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &p_stage_sources, const Vector<uint64_t> &p_dynamic_buffers, RD::ShaderLanguage p_shader_language) {
 	RD::ShaderStageSPIRVData stage;
 	Vector<RD::ShaderStageSPIRVData> stages;
 	String error;
@@ -1164,7 +1172,7 @@ Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &
 			continue;
 		}
 
-		stage.spirv = RD::get_singleton()->shader_compile_spirv_from_source(RD::ShaderStage(i), p_stage_sources[i], RD::SHADER_LANGUAGE_GLSL, &error);
+		stage.spirv = RD::get_singleton()->shader_compile_spirv_from_source(RD::ShaderStage(i), p_stage_sources[i], p_shader_language, &error);
 		stage.dynamic_buffers = p_dynamic_buffers;
 		stage.shader_stage = RD::ShaderStage(i);
 		if (!stage.spirv.is_empty()) {
