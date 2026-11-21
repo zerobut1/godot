@@ -31,8 +31,11 @@
 #include "slang_compiler.h"
 
 #include "core/error/error_macros.h"
+#include "core/os/memory.h"
 #include "core/string/print_string.h"
 #include "core/string/ustring.h"
+#include "core/templates/local_vector.h"
+#include "core/templates/safe_refcount.h"
 #include "core/variant/variant.h"
 
 #include <slang-com-ptr.h>
@@ -42,39 +45,146 @@
 
 namespace {
 
-SlangStage to_slang_stage(SlangCompilerService::ShaderStage p_stage) {
-	switch (p_stage) {
-		case SlangCompilerService::ShaderStage::VERTEX:
-			return SLANG_STAGE_VERTEX;
-		case SlangCompilerService::ShaderStage::TESSELLATION_CONTROL:
-			return SLANG_STAGE_HULL;
-		case SlangCompilerService::ShaderStage::TESSELLATION_EVALUATION:
-			return SLANG_STAGE_DOMAIN;
-		case SlangCompilerService::ShaderStage::GEOMETRY:
-			return SLANG_STAGE_GEOMETRY;
-		case SlangCompilerService::ShaderStage::FRAGMENT:
-			return SLANG_STAGE_FRAGMENT;
-		case SlangCompilerService::ShaderStage::COMPUTE:
-			return SLANG_STAGE_COMPUTE;
-		case SlangCompilerService::ShaderStage::RAY_GENERATION:
-			return SLANG_STAGE_RAY_GENERATION;
-		case SlangCompilerService::ShaderStage::INTERSECTION:
-			return SLANG_STAGE_INTERSECTION;
-		case SlangCompilerService::ShaderStage::ANY_HIT:
-			return SLANG_STAGE_ANY_HIT;
-		case SlangCompilerService::ShaderStage::CLOSEST_HIT:
-			return SLANG_STAGE_CLOSEST_HIT;
-		case SlangCompilerService::ShaderStage::MISS:
-			return SLANG_STAGE_MISS;
-		case SlangCompilerService::ShaderStage::CALLABLE:
-			return SLANG_STAGE_CALLABLE;
-		case SlangCompilerService::ShaderStage::MESH:
-			return SLANG_STAGE_MESH;
-		case SlangCompilerService::ShaderStage::AMPLIFICATION:
-			return SLANG_STAGE_AMPLIFICATION;
+class EmbeddedSlangFileSystem final : public ISlangFileSystemExt {
+	const HashMap<String, String> &files;
+	SafeNumeric<uint32_t> ref_count{ 1 };
+
+	static SlangResult get_path_blob(const String &p_path, ISlangBlob **r_blob) {
+		const CharString path = p_path.utf8();
+		*r_blob = slang_createBlob(path.get_data(), path.length() + 1);
+		return *r_blob ? SLANG_OK : SLANG_E_OUT_OF_MEMORY;
 	}
 
-	return SLANG_STAGE_NONE;
+public:
+	explicit EmbeddedSlangFileSystem(const HashMap<String, String> &p_files) :
+			files(p_files) {}
+
+	void *SLANG_MCALL castAs(const SlangUUID &p_uuid) override {
+		static constexpr SlangUUID interfaces[] = {
+			ISlangUnknown::getTypeGuid(),
+			ISlangCastable::getTypeGuid(),
+			ISlangFileSystem::getTypeGuid(),
+			ISlangFileSystemExt::getTypeGuid(),
+		};
+		for (const SlangUUID &uuid : interfaces) {
+			if (memcmp(&p_uuid, &uuid, sizeof(uuid)) == 0) {
+				return static_cast<ISlangFileSystemExt *>(this);
+			}
+		}
+		return nullptr;
+	}
+
+	SlangResult SLANG_MCALL queryInterface(const SlangUUID &p_uuid, void **r_object) override {
+		*r_object = castAs(p_uuid);
+		if (!*r_object) {
+			return SLANG_E_NO_INTERFACE;
+		}
+		addRef();
+		return SLANG_OK;
+	}
+
+	uint32_t SLANG_MCALL addRef() override { return ref_count.increment(); }
+
+	uint32_t SLANG_MCALL release() override {
+		const uint32_t remaining = ref_count.decrement();
+		if (remaining == 0) {
+			memdelete(this);
+		}
+		return remaining;
+	}
+
+	SlangResult SLANG_MCALL loadFile(const char *p_path, ISlangBlob **r_blob) override {
+		*r_blob = nullptr;
+		const String *source = files.getptr(String::utf8(p_path).simplify_path());
+		if (!source) {
+			return SLANG_E_NOT_FOUND;
+		}
+		const CharString utf8 = source->utf8();
+		// Slang's blob factory requires at least one byte, even for an empty source file.
+		*r_blob = slang_createBlob(utf8.get_data(), MAX(1, utf8.length()));
+		return *r_blob ? SLANG_OK : SLANG_E_OUT_OF_MEMORY;
+	}
+
+	SlangResult SLANG_MCALL getFileUniqueIdentity(const char *p_path, ISlangBlob **r_blob) override {
+		const String path = String::utf8(p_path).simplify_path();
+		return files.has(path) ? get_path_blob(path, r_blob) : SLANG_E_NOT_FOUND;
+	}
+
+	SlangResult SLANG_MCALL calcCombinedPath(SlangPathType p_from_type, const char *p_from, const char *p_path, ISlangBlob **r_blob) override {
+		const String from = String::utf8(p_from);
+		const String directory = p_from_type == SLANG_PATH_TYPE_FILE ? from.get_base_dir() : from;
+		return get_path_blob(directory.path_join(String::utf8(p_path)).simplify_path(), r_blob);
+	}
+
+	SlangResult SLANG_MCALL getPathType(const char *p_path, SlangPathType *r_type) override {
+		if (!files.has(String::utf8(p_path).simplify_path())) {
+			return SLANG_E_NOT_FOUND;
+		}
+		*r_type = SLANG_PATH_TYPE_FILE;
+		return SLANG_OK;
+	}
+
+	SlangResult SLANG_MCALL getPath(PathKind p_kind, const char *p_path, ISlangBlob **r_blob) override {
+		if (p_kind == PathKind::OperatingSystem) {
+			return SLANG_E_NOT_IMPLEMENTED;
+		}
+		return get_path_blob(String::utf8(p_path).simplify_path(), r_blob);
+	}
+
+	void SLANG_MCALL clearCache() override {}
+	SlangResult SLANG_MCALL enumeratePathContents(const char *, FileSystemContentsCallBack, void *) override { return SLANG_E_NOT_IMPLEMENTED; }
+	OSPathKind SLANG_MCALL getOSPathKind() override { return OSPathKind::None; }
+};
+
+bool from_slang_stage(SlangStage p_stage, SlangCompilerService::ShaderStage &r_stage) {
+	using Stage = SlangCompilerService::ShaderStage;
+	switch (p_stage) {
+		case SLANG_STAGE_VERTEX:
+			r_stage = Stage::VERTEX;
+			break;
+		case SLANG_STAGE_HULL:
+			r_stage = Stage::TESSELLATION_CONTROL;
+			break;
+		case SLANG_STAGE_DOMAIN:
+			r_stage = Stage::TESSELLATION_EVALUATION;
+			break;
+		case SLANG_STAGE_GEOMETRY:
+			r_stage = Stage::GEOMETRY;
+			break;
+		case SLANG_STAGE_FRAGMENT:
+			r_stage = Stage::FRAGMENT;
+			break;
+		case SLANG_STAGE_COMPUTE:
+			r_stage = Stage::COMPUTE;
+			break;
+		case SLANG_STAGE_RAY_GENERATION:
+			r_stage = Stage::RAY_GENERATION;
+			break;
+		case SLANG_STAGE_INTERSECTION:
+			r_stage = Stage::INTERSECTION;
+			break;
+		case SLANG_STAGE_ANY_HIT:
+			r_stage = Stage::ANY_HIT;
+			break;
+		case SLANG_STAGE_CLOSEST_HIT:
+			r_stage = Stage::CLOSEST_HIT;
+			break;
+		case SLANG_STAGE_MISS:
+			r_stage = Stage::MISS;
+			break;
+		case SLANG_STAGE_CALLABLE:
+			r_stage = Stage::CALLABLE;
+			break;
+		case SLANG_STAGE_MESH:
+			r_stage = Stage::MESH;
+			break;
+		case SLANG_STAGE_AMPLIFICATION:
+			r_stage = Stage::AMPLIFICATION;
+			break;
+		default:
+			return false;
+	}
+	return true;
 }
 
 void append_diagnostics(slang::IBlob *p_diagnostics, String &r_diagnostics) {
@@ -118,36 +228,14 @@ Error SlangCompilerService::initialize() {
 	return OK;
 }
 
-void SlangCompilerService::finalize() {
-	if (global_session == nullptr) {
-		return;
-	}
-
-	global_session->release();
-	global_session = nullptr;
-	slang_shutdown();
-}
-
-Error SlangCompilerService::compile_hlsl_to_spirv(const String &p_source, const String &p_source_path, const String &p_entry_point, ShaderStage p_stage, PackedByteArray &r_spirv, String &r_diagnostics) {
-	r_spirv.clear();
-	r_diagnostics.clear();
-
-	if (global_session == nullptr) {
-		r_diagnostics = "The Slang global session is not initialized.";
+Error SlangCompilerService::compile_slang_to_spirv(const SlangCompileRequest &p_request, SlangCompileResult &r_result) {
+	r_result = {};
+	if (!global_session) {
+		r_result.diagnostics = "The Slang global session is not initialized.";
 		return ERR_UNCONFIGURED;
 	}
-	if (p_source.is_empty()) {
-		r_diagnostics = "The HLSL source is empty.";
-		return ERR_INVALID_PARAMETER;
-	}
-	if (p_entry_point.is_empty()) {
-		r_diagnostics = "The shader entry point is empty.";
-		return ERR_INVALID_PARAMETER;
-	}
-
-	const SlangStage slang_stage = to_slang_stage(p_stage);
-	if (slang_stage == SLANG_STAGE_NONE) {
-		r_diagnostics = "The shader stage is invalid.";
+	if (p_request.module_path.is_empty()) {
+		r_result.diagnostics = "The Slang module path is empty.";
 		return ERR_INVALID_PARAMETER;
 	}
 
@@ -156,75 +244,133 @@ Error SlangCompilerService::compile_hlsl_to_spirv(const String &p_source, const 
 	target_desc.profile = global_session->findProfile("spirv_1_5");
 	target_desc.flags = SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY;
 	if (target_desc.profile == SLANG_PROFILE_UNKNOWN) {
-		r_diagnostics = "Slang does not provide the spirv_1_5 target profile.";
+		r_result.diagnostics = "Slang does not provide the spirv_1_5 target profile.";
 		return ERR_UNAVAILABLE;
 	}
 
+	LocalVector<CharString> search_paths_utf8;
+	LocalVector<const char *> search_paths;
+	search_paths_utf8.reserve(p_request.search_paths.size());
+	for (const String &path : p_request.search_paths) {
+		search_paths_utf8.push_back(path.utf8());
+		search_paths.push_back(search_paths_utf8[search_paths_utf8.size() - 1].get_data());
+	}
+
+	Slang::ComPtr<ISlangFileSystem> file_system;
+	if (p_request.virtual_files) {
+		file_system.attach(memnew(EmbeddedSlangFileSystem(*p_request.virtual_files)));
+	}
+
+	const slang::CompilerOptionEntry debug_option = {
+		slang::CompilerOptionName::DebugInformation,
+		{ slang::CompilerOptionValueKind::Int, p_request.debug_info ? SLANG_DEBUG_INFO_LEVEL_STANDARD : SLANG_DEBUG_INFO_LEVEL_NONE },
+	};
 	slang::SessionDesc session_desc = {};
-	session_desc.targetCount = 1;
 	session_desc.targets = &target_desc;
+	session_desc.targetCount = 1;
+	session_desc.searchPaths = search_paths.ptr();
+	session_desc.searchPathCount = search_paths.size();
+	session_desc.fileSystem = file_system.get();
+	session_desc.compilerOptionEntries = &debug_option;
+	session_desc.compilerOptionEntryCount = 1;
 
 	Slang::ComPtr<slang::ISession> session;
 	SlangResult result = global_session->createSession(session_desc, session.writeRef());
-	if (SLANG_FAILED(result) || session == nullptr) {
-		r_diagnostics = vformat("Failed to create the Slang compilation session (result %d).", result);
+	if (SLANG_FAILED(result) || !session) {
+		r_result.diagnostics = vformat("Failed to create the Slang compilation session (result %d).", result);
 		return ERR_CANT_CREATE;
 	}
 
-	const CharString source_utf8 = p_source.utf8();
-	const CharString source_path_utf8 = p_source_path.is_empty() ? CharString("runtime_shader.hlsl") : p_source_path.utf8();
-	const CharString entry_point_utf8 = p_entry_point.utf8();
-
+	const CharString module_path = p_request.module_path.utf8();
 	Slang::ComPtr<slang::IBlob> diagnostics;
-	Slang::ComPtr<slang::IModule> module(session->loadModuleFromSourceString(
-			"runtime_shader",
-			source_path_utf8.get_data(),
-			source_utf8.get_data(),
-			diagnostics.writeRef()));
-	append_diagnostics(diagnostics, r_diagnostics);
-	if (module == nullptr) {
+	Slang::ComPtr<slang::IModule> module(session->loadModule(module_path.get_data(), diagnostics.writeRef()));
+	append_diagnostics(diagnostics, r_result.diagnostics);
+	if (!module) {
 		return ERR_COMPILATION_FAILED;
 	}
 
-	diagnostics.setNull();
-	Slang::ComPtr<slang::IEntryPoint> entry_point;
-	result = module->findAndCheckEntryPoint(entry_point_utf8.get_data(), slang_stage, entry_point.writeRef(), diagnostics.writeRef());
-	append_diagnostics(diagnostics, r_diagnostics);
-	if (SLANG_FAILED(result) || entry_point == nullptr) {
+	for (SlangInt32 i = 0; i < module->getDependencyFileCount(); ++i) {
+		if (const char *path = module->getDependencyFilePath(i)) {
+			r_result.dependency_paths.push_back(String::utf8(path).simplify_path());
+		}
+	}
+
+	const SlangInt32 entry_point_count = module->getDefinedEntryPointCount();
+	if (entry_point_count == 0) {
+		r_result.diagnostics += "The Slang module has no entry points marked with [shader(...)].";
 		return ERR_COMPILATION_FAILED;
 	}
 
-	slang::IComponentType *components[] = { module.get(), entry_point.get() };
-	diagnostics.setNull();
+	LocalVector<Slang::ComPtr<slang::IEntryPoint>> entry_points;
+	entry_points.resize(entry_point_count);
+	LocalVector<slang::IComponentType *> components;
+	components.push_back(module.get());
+	for (SlangInt32 i = 0; i < entry_point_count; ++i) {
+		result = module->getDefinedEntryPoint(i, entry_points[i].writeRef());
+		if (SLANG_FAILED(result) || !entry_points[i]) {
+			r_result.diagnostics += vformat("Failed to retrieve Slang entry point %d (result %d).", i, result);
+			return ERR_COMPILATION_FAILED;
+		}
+		components.push_back(entry_points[i].get());
+	}
+
+	// Link every entry point in the same program so they share a binding layout.
 	Slang::ComPtr<slang::IComponentType> composite_program;
-	result = session->createCompositeComponentType(components, 2, composite_program.writeRef(), diagnostics.writeRef());
-	append_diagnostics(diagnostics, r_diagnostics);
-	if (SLANG_FAILED(result) || composite_program == nullptr) {
+	result = session->createCompositeComponentType(components.ptr(), components.size(), composite_program.writeRef(), diagnostics.writeRef());
+	append_diagnostics(diagnostics, r_result.diagnostics);
+	if (SLANG_FAILED(result) || !composite_program) {
 		return ERR_COMPILATION_FAILED;
 	}
 
-	diagnostics.setNull();
 	Slang::ComPtr<slang::IComponentType> linked_program;
 	result = composite_program->link(linked_program.writeRef(), diagnostics.writeRef());
-	append_diagnostics(diagnostics, r_diagnostics);
-	if (SLANG_FAILED(result) || linked_program == nullptr) {
+	append_diagnostics(diagnostics, r_result.diagnostics);
+	if (SLANG_FAILED(result) || !linked_program) {
 		return ERR_LINK_FAILED;
 	}
 
-	diagnostics.setNull();
-	Slang::ComPtr<slang::IBlob> code;
-	result = linked_program->getEntryPointCode(0, 0, code.writeRef(), diagnostics.writeRef());
-	append_diagnostics(diagnostics, r_diagnostics);
-	if (SLANG_FAILED(result) || code == nullptr || code->getBufferPointer() == nullptr || code->getBufferSize() == 0) {
+	slang::ProgramLayout *layout = linked_program->getLayout(0, diagnostics.writeRef());
+	append_diagnostics(diagnostics, r_result.diagnostics);
+	if (!layout) {
 		return ERR_COMPILATION_FAILED;
 	}
 
-	const size_t code_size = code->getBufferSize();
-	const Error resize_error = r_spirv.resize(code_size);
-	if (resize_error != OK) {
-		r_diagnostics = "Failed to allocate memory for the compiled SPIR-V.";
-		return resize_error;
+	Vector<SlangEntryPoint> compiled_entry_points;
+	for (SlangInt32 i = 0; i < entry_point_count; ++i) {
+		slang::EntryPointReflection *reflection = layout->getEntryPointByIndex(i);
+		SlangEntryPoint entry_point;
+		if (!reflection || !from_slang_stage(reflection->getStage(), entry_point.stage)) {
+			r_result.diagnostics += vformat("Unsupported stage for Slang entry point %d.", i);
+			return ERR_UNAVAILABLE;
+		}
+		entry_point.name = String::utf8(reflection->getName());
+
+		Slang::ComPtr<slang::IBlob> code;
+		result = linked_program->getEntryPointCode(i, 0, code.writeRef(), diagnostics.writeRef());
+		append_diagnostics(diagnostics, r_result.diagnostics);
+		if (SLANG_FAILED(result) || !code || !code->getBufferPointer() || code->getBufferSize() == 0) {
+			return ERR_COMPILATION_FAILED;
+		}
+
+		const Error resize_error = entry_point.spirv.resize(code->getBufferSize());
+		if (resize_error != OK) {
+			r_result.diagnostics += "Failed to allocate memory for the compiled SPIR-V.";
+			return resize_error;
+		}
+		memcpy(entry_point.spirv.ptrw(), code->getBufferPointer(), code->getBufferSize());
+		compiled_entry_points.push_back(entry_point);
 	}
-	memcpy(r_spirv.ptrw(), code->getBufferPointer(), code_size);
+
+	r_result.entry_points = std::move(compiled_entry_points);
 	return OK;
+}
+
+void SlangCompilerService::finalize() {
+	if (global_session == nullptr) {
+		return;
+	}
+
+	global_session->release();
+	global_session = nullptr;
+	slang_shutdown();
 }

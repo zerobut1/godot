@@ -51,22 +51,22 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 
 	RD *rd = RD::get_singleton();
 	ERR_FAIL_NULL(rd);
-	if (triangle_shader_version.is_null()) {
-		triangle_shader.initialize({ "" });
-		triangle_shader_version = triangle_shader.version_create();
-		ERR_FAIL_COND_MSG(triangle_shader_version.is_null(), "Yutrel: failed to create the HLSL triangle shader version.");
+	if (!triangle_shader.is_loaded()) {
+		triangle_shader.load("triangle.slang");
 	}
+	triangle_shader.poll_hot_reload();
+	const RID triangle_shader_rid = triangle_shader.get_shader();
+	if (triangle_shader_rid.is_null()) {
+		return;
+	}
+	const uint64_t shader_version = triangle_shader.get_version();
 
 	const RD::TextureSamples sample_count = RenderSceneBuffersRD::msaa_to_samples(textures->render_target_get_msaa(target));
 	const RD::FramebufferFormatID framebuffer_format = rd->framebuffer_get_format(framebuffer);
-	if (triangle_pipeline.is_null() || triangle_framebuffer_format != framebuffer_format || triangle_sample_count != sample_count) {
-		if (triangle_pipeline.is_valid()) {
+	if (triangle_pipeline.is_null() || triangle_shader_version != shader_version || triangle_framebuffer_format != framebuffer_format || triangle_sample_count != sample_count) {
+		if (triangle_pipeline.is_valid() && rd->render_pipeline_is_valid(triangle_pipeline)) {
 			rd->free_rid(triangle_pipeline);
-			triangle_pipeline = RID();
 		}
-
-		RID triangle_shader_rid = triangle_shader.version_get_shader(triangle_shader_version, 0);
-		ERR_FAIL_COND_MSG(triangle_shader_rid.is_null(), "Yutrel: ShaderRD failed to compile or create the HLSL triangle shader.");
 
 		RD::PipelineMultisampleState multisample_state;
 		multisample_state.sample_count = sample_count;
@@ -82,11 +82,11 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 				0);
 		ERR_FAIL_COND_MSG(triangle_pipeline.is_null(), "Yutrel: failed to create the triangle render pipeline.");
 
+		triangle_shader_version = shader_version;
 		triangle_framebuffer_format = framebuffer_format;
 		triangle_sample_count = sample_count;
-		rd->set_resource_name(triangle_shader_rid, "Yutrel Triangle Shader");
 		rd->set_resource_name(triangle_pipeline, "Yutrel Triangle Pipeline");
-		print_verbose("Yutrel: HLSL triangle pipeline created through ShaderRD.");
+		print_verbose("Yutrel: Slang triangle pipeline created.");
 	}
 
 	Color clear_color = Color(0.4, 0.8, 1.0, 1.0);
@@ -98,7 +98,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	textures->render_target_disable_clear_request(target);
 	textures->render_target_set_msaa_needs_resolve(target, false);
 
-	rd->draw_command_begin_label("Yutrel: HLSL triangle", Color(0.2, 0.7, 1.0));
+	rd->draw_command_begin_label("Yutrel: Slang triangle", Color(0.2, 0.7, 1.0));
 	RD::DrawListID draw_list = rd->draw_list_begin(
 			framebuffer,
 			RD::DRAW_CLEAR_COLOR_0,
@@ -127,17 +127,13 @@ void RenderYutrel::geometry_instance_free(RenderGeometryInstance *p_geometry_ins
 
 RenderYutrel::RenderYutrel() {
 	sky.set_texture_format(_render_buffers_get_preferred_color_format());
-	print_verbose("Yutrel: independent scene renderer created (HLSL triangle bootstrap).");
+	print_verbose("Yutrel: independent scene renderer created (Slang triangle bootstrap).");
 }
 
 RenderYutrel::~RenderYutrel() {
 	if (triangle_pipeline.is_valid()) {
 		RD::get_singleton()->free_rid(triangle_pipeline);
 	}
-	if (triangle_shader_version.is_valid()) {
-		triangle_shader.version_free(triangle_shader_version);
-	}
-
 	// This can call base_uniforms_changed(), so release before the base destructor.
 	RendererRD::LightStorage::get_singleton()->directional_shadow_atlas_set_size(0);
 }

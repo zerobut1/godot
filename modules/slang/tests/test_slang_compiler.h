@@ -38,30 +38,31 @@
 
 namespace TestSlangCompiler {
 
-TEST_CASE("[Slang] Compile HLSL compute shader to SPIR-V") {
-	const String source = R"(
-[[vk::binding(0, 0)]]
-RWStructuredBuffer<uint> outputBuffer : register(u0, space0);
+TEST_CASE("[Slang] Compile a native compute shader to SPIR-V") {
+	using Compiler = SlangCompilerService;
+	HashMap<String, String> files;
+	files.insert("compute.slang", R"(
+RWStructuredBuffer<uint> output_buffer;
 
+[shader("compute")]
 [numthreads(8, 1, 1)]
-void main(uint3 id : SV_DispatchThreadID)
-{
-	outputBuffer[id.x] = id.x * 2 + 1;
+void compute_main(uint3 id : SV_DispatchThreadID) {
+	output_buffer[id.x] = id.x * 2 + 1;
 }
-)";
+)");
+	Compiler::SlangCompileRequest request;
+	request.module_path = "compute.slang";
+	request.virtual_files = &files;
+	Compiler::SlangCompileResult result;
+	const Error error = Compiler::compile_slang_to_spirv(request, result);
 
-	PackedByteArray spirv;
-	String diagnostics;
-	const Error error = SlangCompilerService::compile_hlsl_to_spirv(
-			source,
-			"test_compute.hlsl",
-			"main",
-			SlangCompilerService::ShaderStage::COMPUTE,
-			spirv,
-			diagnostics);
-
-	INFO(diagnostics);
+	INFO(result.diagnostics);
 	REQUIRE(error == OK);
+	REQUIRE(result.entry_points.size() == 1);
+	const Compiler::SlangEntryPoint &entry_point = result.entry_points[0];
+	CHECK(entry_point.stage == Compiler::ShaderStage::COMPUTE);
+	CHECK(entry_point.name == "compute_main");
+	const PackedByteArray &spirv = entry_point.spirv;
 	REQUIRE(spirv.size() >= 20);
 	CHECK(spirv.size() % sizeof(uint32_t) == 0);
 
@@ -70,28 +71,91 @@ void main(uint3 id : SV_DispatchThreadID)
 	CHECK(magic == 0x07230203);
 }
 
-TEST_CASE("[Slang] Return diagnostics for invalid HLSL") {
-	const String source = R"(
-[numthreads(1, 1, 1)]
-void main(uint3 id : SV_DispatchThreadID)
-{
-	this is not valid HLSL;
+TEST_CASE("[Slang] Compile vertex and fragment entry points from one module") {
+	using Compiler = SlangCompilerService;
+	HashMap<String, String> files;
+	files.insert("graphics.slang", R"(
+struct Varyings {
+	float4 position : SV_Position;
+	float3 color : COLOR0;
+};
+
+[shader("vertex")]
+Varyings vertex_main(uint vertex_id : SV_VulkanVertexID) {
+	return { float4(float(vertex_id), 0, 0, 1), float3(1, 0.5, 0) };
 }
-)";
 
-	PackedByteArray spirv;
-	String diagnostics;
-	const Error error = SlangCompilerService::compile_hlsl_to_spirv(
-			source,
-			"invalid_compute.hlsl",
-			"main",
-			SlangCompilerService::ShaderStage::COMPUTE,
-			spirv,
-			diagnostics);
+[shader("fragment")]
+float4 fragment_main(Varyings input) : SV_Target0 {
+	return float4(input.color, 1);
+}
+)");
+	Compiler::SlangCompileRequest request;
+	request.module_path = "graphics.slang";
+	request.virtual_files = &files;
+	Compiler::SlangCompileResult result;
+	const Error error = Compiler::compile_slang_to_spirv(request, result);
 
-	CHECK(error == ERR_COMPILATION_FAILED);
-	CHECK(spirv.is_empty());
-	CHECK_FALSE(diagnostics.is_empty());
+	INFO(result.diagnostics);
+	REQUIRE(error == OK);
+	REQUIRE(result.entry_points.size() == 2);
+	for (const Compiler::SlangEntryPoint &entry_point : result.entry_points) {
+		REQUIRE(entry_point.spirv.size() >= 20);
+		CHECK(entry_point.spirv.size() % sizeof(uint32_t) == 0);
+		uint32_t magic = 0;
+		memcpy(&magic, entry_point.spirv.ptr(), sizeof(magic));
+		CHECK(magic == 0x07230203);
+		if (entry_point.stage == Compiler::ShaderStage::VERTEX) {
+			CHECK(entry_point.name == "vertex_main");
+		} else {
+			CHECK(entry_point.stage == Compiler::ShaderStage::FRAGMENT);
+			CHECK(entry_point.name == "fragment_main");
+		}
+	}
+	CHECK(result.entry_points[0].stage != result.entry_points[1].stage);
+}
+
+TEST_CASE("[Slang] Resolve imported modules from embedded sources") {
+	using Compiler = SlangCompilerService;
+	HashMap<String, String> files;
+	files.insert("effects/tint.slang", R"(
+public float4 get_tint() { return float4(0.1, 0.3, 0.5, 1); }
+)");
+	files.insert("effects/example.slang", R"(
+import tint;
+
+[shader("fragment")]
+float4 fragment_main() : SV_Target0 { return get_tint(); }
+)");
+	Compiler::SlangCompileRequest request;
+	request.module_path = "effects/example.slang";
+	request.virtual_files = &files;
+	Compiler::SlangCompileResult result;
+	const Error error = Compiler::compile_slang_to_spirv(request, result);
+
+	INFO(result.diagnostics);
+	REQUIRE(error == OK);
+	REQUIRE(result.entry_points.size() == 1);
+	CHECK_FALSE(result.entry_points[0].spirv.is_empty());
+	CHECK(result.dependency_paths.has("effects/example.slang"));
+	CHECK(result.dependency_paths.has("effects/tint.slang"));
+}
+
+TEST_CASE("[Slang] Return diagnostics for an invalid native module") {
+	using Compiler = SlangCompilerService;
+	HashMap<String, String> files;
+	files.insert("invalid.slang", R"(
+[shader("fragment")]
+float4 fragment_main() : SV_Target0 { return undefined_tint; }
+)");
+	Compiler::SlangCompileRequest request;
+	request.module_path = "invalid.slang";
+	request.virtual_files = &files;
+	Compiler::SlangCompileResult result;
+
+	CHECK(Compiler::compile_slang_to_spirv(request, result) == ERR_COMPILATION_FAILED);
+	CHECK(result.entry_points.is_empty());
+	CHECK(result.diagnostics.contains("undefined_tint"));
 }
 
 } // namespace TestSlangCompiler

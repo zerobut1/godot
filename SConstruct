@@ -46,7 +46,7 @@ def _helper_module(name, path):
 
 _helper_module("gles3_builders", "gles3_builders.py")
 _helper_module("glsl_builders", "glsl_builders.py")
-_helper_module("hlsl_builders", "hlsl_builders.py")
+_helper_module("slang_builders", "slang_builders.py")
 _helper_module("methods", "methods.py")
 _helper_module("platform_methods", "platform_methods.py")
 _helper_module("version", "version.py")
@@ -57,9 +57,9 @@ _helper_module("misc.utility.color", "misc/utility/color.py")
 # Local
 import gles3_builders
 import glsl_builders
-import hlsl_builders
 import methods
 import scu_builders
+import slang_builders
 from misc.utility.color import is_stderr_color, print_error, print_info, print_warning
 from platform_methods import architecture_aliases, architectures, compatibility_platform_aliases
 
@@ -1194,14 +1194,7 @@ GLSL_BUILDERS = {
 }
 env.Append(BUILDERS=GLSL_BUILDERS)
 
-HLSL_BUILDERS = {
-    "HLSL_HEADER": env.Builder(
-        action=env.Run(hlsl_builders.build_hlsl_headers),
-        suffix="hlsl.gen.h",
-        src_suffix=".hlsl",
-    ),
-}
-env.Append(BUILDERS=HLSL_BUILDERS)
+env.Append(BUILDERS={"SLANG_EMBEDDED_HEADER": env.Builder(action=env.Run(slang_builders.build_slang_header))})
 
 if env["compiledb"]:
     env.Tool("compilation_db")

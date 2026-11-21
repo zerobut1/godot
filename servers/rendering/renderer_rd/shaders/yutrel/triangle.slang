@@ -1,14 +1,11 @@
-#[vertex]
-
-#VERSION_DEFINES
-
 struct VertexOutput
 {
 	float4 position : SV_Position;
 	float3 color : COLOR0;
 };
 
-VertexOutput main(uint vertex_id : SV_VertexID)
+[shader("vertex")]
+VertexOutput vertex_main(uint vertex_id : SV_VulkanVertexID)
 {
 	VertexOutput output;
 
@@ -31,17 +28,8 @@ VertexOutput main(uint vertex_id : SV_VertexID)
 	return output;
 }
 
-#[fragment]
-
-#VERSION_DEFINES
-
-struct VertexOutput
-{
-	float4 position : SV_Position;
-	float3 color : COLOR0;
-};
-
-float4 main(VertexOutput input) : SV_Target0
+[shader("fragment")]
+float4 fragment_main(VertexOutput input) : SV_Target0
 {
 	return float4(input.color, 1.0);
 }

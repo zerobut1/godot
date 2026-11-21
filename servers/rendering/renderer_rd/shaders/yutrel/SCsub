@@ -1,13 +1,11 @@
 #!/usr/bin/env python
 from misc.utility.scons_hints import *
 
+from pathlib import Path
+
 Import("env")
 
-if "HLSL_HEADER" in env["BUILDERS"]:
-    hlsl_files = [str(f) for f in Glob("*.hlsl")]
-    hlsl_include_files = [str(f) for f in Glob("*.hlsli")]
-
-    env.Depends([f + ".gen.h" for f in hlsl_files], hlsl_include_files + ["#hlsl_builders.py"])
-
-    for hlsl_file in hlsl_files:
-        env.HLSL_HEADER(hlsl_file)
+shader_dir = Path(env.Dir(".").abspath)
+slang_files = [env.File(str(path)) for path in sorted(shader_dir.rglob("*.slang")) if path.is_file()]
+embedded_header = env.SLANG_EMBEDDED_HEADER("yutrel_embedded_shaders.gen.h", slang_files)
+env.Depends(embedded_header, "#slang_builders.py")

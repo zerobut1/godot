@@ -32,6 +32,7 @@
 
 #include "core/error/error_list.h"
 #include "core/string/ustring.h"
+#include "core/templates/hash_map.h"
 #include "core/variant/variant.h"
 
 namespace slang {
@@ -59,9 +60,33 @@ public:
 		AMPLIFICATION,
 	};
 
+	struct SlangCompileRequest {
+		String module_path;
+		Vector<String> search_paths;
+		// When provided, the compiler loads sources exclusively from this map of relative paths.
+		const HashMap<String, String> *virtual_files = nullptr;
+#if defined(DEV_ENABLED) || defined(DEBUG_ENABLED)
+		bool debug_info = true;
+#else
+		bool debug_info = false;
+#endif
+	};
+
+	struct SlangEntryPoint {
+		String name;
+		ShaderStage stage;
+		PackedByteArray spirv;
+	};
+
+	struct SlangCompileResult {
+		Vector<SlangEntryPoint> entry_points;
+		Vector<String> dependency_paths;
+		String diagnostics;
+	};
+
 	static Error initialize();
 	static void finalize();
-	static Error compile_hlsl_to_spirv(const String &p_source, const String &p_source_path, const String &p_entry_point, ShaderStage p_stage, PackedByteArray &r_spirv, String &r_diagnostics);
+	static Error compile_slang_to_spirv(const SlangCompileRequest &p_request, SlangCompileResult &r_result);
 
 	static slang::IGlobalSession *get_global_session() { return global_session; }
 };

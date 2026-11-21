@@ -3,4 +3,9 @@ from misc.utility.scons_hints import *
 
 Import("env")
 
-env.add_source_files(env.servers_sources, "*.cpp")
+env_yutrel = env.Clone()
+if env.dev_build or env.editor_build:
+    shader_dir = env.Dir("../shaders/yutrel").abspath.replace("\\", "/")
+    env_yutrel.Append(CPPDEFINES=[("YUTREL_SHADER_SOURCE_DIR", f'\\"{shader_dir}\\"')])
+
+env_yutrel.add_source_files(env.servers_sources, "*.cpp")
