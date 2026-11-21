@@ -30,14 +30,19 @@
 
 #pragma once
 
+#include "yutrel_render_data.h"
 #include "yutrel_shader.h"
 
 #include "servers/rendering/renderer_geometry_instance.h"
+#include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
+
+#ifdef TOOLS_ENABLED
+#include "editor_gizmo_pass.h"
+#endif
 
 namespace RendererSceneRenderImplementation {
 
-// Bootstrap renderer that draws a runtime-compiled Slang triangle to the final viewport target.
 class RenderYutrel : public RendererSceneRenderRD {
 	class GeometryInstanceYutrel : public RenderGeometryInstanceBase {
 		Data instance_data;
@@ -60,11 +65,32 @@ class RenderYutrel : public RendererSceneRenderRD {
 		void set_softshadow_projector_pairing(bool p_softshadow, bool p_projector) override {}
 	};
 
-	YutrelShader triangle_shader;
-	uint64_t triangle_shader_version = 0;
-	RID triangle_pipeline;
-	RD::FramebufferFormatID triangle_framebuffer_format = RD::INVALID_FORMAT_ID;
-	RD::TextureSamples triangle_sample_count = RD::TEXTURE_SAMPLES_1;
+	struct DrawItem {
+		void *surface = nullptr;
+		bool mirrored = false;
+		RID vertex_array;
+		RID index_array;
+		RID pipeline;
+	};
+
+	YutrelShader forward_shader;
+	YutrelShader output_shader;
+	PipelineCacheRD forward_pipelines[2];
+	PipelineCacheRD output_pipeline;
+	RID frame_buffer;
+	YutrelStorageBuffer instance_buffer;
+	LocalVector<DrawItem> draws;
+	LocalVector<YutrelInstanceData> instances;
+#ifdef TOOLS_ENABLED
+	EditorGizmoPass editor_gizmos;
+#endif
+
+	YutrelFrameData _build_frame_data(const RenderDataRD &p_data) const;
+	void _build_draw_list(const RenderDataRD &p_data);
+	bool _get_native_targets(const RenderDataRD &p_data, YutrelPipelineTargets &r_targets) const;
+	bool _prepare_passes();
+	void _record_forward_pass(const YutrelPipelineTargets &p_targets, RID p_uniform_set, const Color &p_clear_color);
+	void _record_output_pass(const YutrelPipelineTargets &p_targets, RID p_pipeline, RID p_uniform_set);
 
 protected:
 	void setup_render_buffer_data(Ref<RenderSceneBuffersRD> p_render_buffers) override {}

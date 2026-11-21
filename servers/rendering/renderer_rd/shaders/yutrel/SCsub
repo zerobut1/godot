@@ -6,6 +6,10 @@ from pathlib import Path
 Import("env")
 
 shader_dir = Path(env.Dir(".").abspath)
-slang_files = [env.File(str(path)) for path in sorted(shader_dir.rglob("*.slang")) if path.is_file()]
+slang_files = [
+    env.File(str(path))
+    for path in sorted(shader_dir.rglob("*.slang"))
+    if path.is_file() and (env.editor_build or path.name != "editor_gizmo.slang")
+]
 embedded_header = env.SLANG_EMBEDDED_HEADER("yutrel_embedded_shaders.gen.h", slang_files)
 env.Depends(embedded_header, "#slang_builders.py")
