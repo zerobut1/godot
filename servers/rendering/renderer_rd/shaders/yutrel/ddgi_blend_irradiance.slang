@@ -24,12 +24,14 @@ float3 round_history_fp16(float3 value, uint3 texel)
 [numthreads(8, 8, 1)]
 void compute_main(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint lane : SV_GroupIndex, uint3 tid : SV_DispatchThreadID)
 {
+	if (!blend_probe_is_active(group))
+		return;
 	uint backfaces;
 	float3 sample = integrate_rays(group, local.xy, lane, 8, false, backfaces);
 	bool border = is_border(local.xy, 8);
 	if (!border)
 	{
-		if (backfaces != 0 && backfaces >= uint(volume.rays_per_probe * volume.backface_threshold))
+		if (backfaces != 0 && backfaces >= uint(blend_ray_count() * volume.backface_threshold))
 		{
 			if (volume.reset_history != 0)
 				atlas[tid] = 0;

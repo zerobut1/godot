@@ -48,8 +48,10 @@ struct alignas(16) DDGIVolumeData {
 	uint32_t infinite_bounces, reset_history;
 	float probe_preview_radius;
 	uint32_t active;
+	float min_frontface_distance, fixed_ray_backface_threshold;
+	uint32_t relocation_enabled, classification_enabled;
 };
-static_assert(sizeof(DDGIVolumeData) == 112);
+static_assert(sizeof(DDGIVolumeData) == 128);
 static_assert(alignof(DDGIVolumeData) == 16);
 static_assert(offsetof(DDGIVolumeData, spacing) == 16);
 static_assert(offsetof(DDGIVolumeData, probe_counts) == 32);
@@ -57,11 +59,15 @@ static_assert(offsetof(DDGIVolumeData, ray_rotation) == 48);
 static_assert(offsetof(DDGIVolumeData, normal_bias) == 64);
 static_assert(offsetof(DDGIVolumeData, irradiance_threshold) == 80);
 static_assert(offsetof(DDGIVolumeData, infinite_bounces) == 96);
+static_assert(offsetof(DDGIVolumeData, min_frontface_distance) == 112);
+
+constexpr uint32_t DDGI_NUM_FIXED_RAYS = 32;
 
 struct DDGIBindings {
 	RID volume;
 	RID irradiance;
 	RID distance;
+	RID probe_data;
 };
 
 } // namespace RendererSceneRenderImplementation

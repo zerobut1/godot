@@ -3,6 +3,18 @@ import ddgi_common;
 [[vk::binding(0, 0)]] public ConstantBuffer<DDGIVolumeData> volume;
 [[vk::binding(1, 0)]] Texture2DArray<float4> ray_data;
 
+[[vk::binding(3, 0)]] Texture2DArray<float4> probe_data;
+
+public bool blend_probe_is_active(uint3 group)
+{
+	return ddgi_probe_is_active(int3(group.xzy), volume, probe_data);
+}
+
+public uint blend_ray_count()
+{
+	return max(volume.rays_per_probe - ddgi_first_blend_ray(volume), 1u);
+}
+
 static const uint CHUNK = 256;
 groupshared float4 samples[CHUNK];
 groupshared float3 directions[CHUNK];
@@ -32,7 +44,8 @@ public float3 integrate_rays(uint3 group, uint2 pixel, uint lane, uint tile, boo
 	uint row = group.y * volume.probe_counts.x + group.x;
 	// Keep both half-distance moments representable even in very large volumes.
 	float max_distance = min(length(volume.spacing) * 1.5, sqrt(2.0 * 65504.0));
-	for (uint first = 0; first < volume.rays_per_probe; first += CHUNK)
+	uint first_ray = ddgi_first_blend_ray(volume);
+	for (uint first = first_ray; first < volume.rays_per_probe; first += CHUNK)
 	{
 		uint count = min(CHUNK, volume.rays_per_probe - first);
 		for (uint j = lane; j < count; j += tile * tile)
@@ -65,5 +78,5 @@ public float3 integrate_rays(uint3 group, uint2 pixel, uint lane, uint tile, boo
 		}
 		GroupMemoryBarrierWithGroupSync();
 	}
-	return sum / (2 * max(weight_sum, volume.rays_per_probe * 1e-9));
+	return sum / (2 * max(weight_sum, blend_ray_count() * 1e-9));
 }

@@ -63,13 +63,13 @@ RID linear_sampler() {
 
 using Uniform = RD::Uniform;
 
-void dispatch_blend(Span<char> p_name, RID p_pipeline, RID p_set, Vector3i p_counts) {
+void dispatch(Span<char> p_name, RID p_pipeline, RID p_set, Vector3i p_groups) {
 	RD *rd = RD::get_singleton();
 	rd->draw_command_begin_label(p_name, Color(0.3f, 0.65f, 0.45f));
 	const RD::ComputeListID list = rd->compute_list_begin();
 	rd->compute_list_bind_compute_pipeline(list, p_pipeline);
 	rd->compute_list_bind_uniform_set(list, p_set, 0);
-	rd->compute_list_dispatch(list, p_counts.x, p_counts.z, p_counts.y);
+	rd->compute_list_dispatch(list, p_groups.x, p_groups.y, p_groups.z);
 	rd->compute_list_end();
 	rd->draw_command_end_label();
 }
@@ -77,7 +77,7 @@ void dispatch_blend(Span<char> p_name, RID p_pipeline, RID p_set, Vector3i p_cou
 } // namespace
 
 void DDGIPass::History::clear() {
-	for (RID rid : { bindings.volume, bindings.irradiance, bindings.distance, ray_data }) {
+	for (RID rid : { bindings.volume, bindings.irradiance, bindings.distance, bindings.probe_data, ray_data }) {
 		if (rid.is_valid()) {
 			RD::get_singleton()->free_rid(rid);
 		}
@@ -94,7 +94,9 @@ bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector
 	const bool trace_ready = trace.prepare("ddgi_probe_trace.slang");
 	const bool irr_ready = blend_irradiance.prepare("ddgi_blend_irradiance.slang");
 	const bool dist_ready = blend_distance.prepare("ddgi_blend_distance.slang");
-	ERR_FAIL_COND_V(!trace_ready || !irr_ready || !dist_ready, false);
+	const bool relocation_ready = relocate.prepare("ddgi_probe_relocation.slang");
+	const bool classification_ready = classify.prepare("ddgi_probe_classification.slang");
+	ERR_FAIL_COND_V(!trace_ready || !irr_ready || !dist_ready || !relocation_ready || !classification_ready, false);
 
 	RD *rd = RD::get_singleton();
 	const Vector3i counts = v.probe_counts;
@@ -103,7 +105,8 @@ bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector
 		h.bindings.volume = rd->uniform_buffer_create(sizeof(DDGIVolumeData));
 		h.bindings.irradiance = create_atlas(RD::DATA_FORMAT_R16G16B16A16_SFLOAT, counts.x * 8, counts.z * 8, counts.y, "Yutrel DDGI Irradiance");
 		h.bindings.distance = create_atlas(RD::DATA_FORMAT_R16G16_SFLOAT, counts.x * 16, counts.z * 16, counts.y, "Yutrel DDGI Distance");
-		ERR_FAIL_COND_V(h.bindings.volume.is_null() || h.bindings.irradiance.is_null() || h.bindings.distance.is_null(), false);
+		h.bindings.probe_data = create_atlas(RD::DATA_FORMAT_R16G16B16A16_SFLOAT, counts.x, counts.z, counts.y, "Yutrel DDGI Probe Data");
+		ERR_FAIL_COND_V(h.bindings.volume.is_null() || h.bindings.irradiance.is_null() || h.bindings.distance.is_null() || h.bindings.probe_data.is_null(), false);
 		rd->set_resource_name(h.bindings.volume, "Yutrel DDGI Volume");
 		h.counts = counts;
 	}
@@ -117,9 +120,11 @@ bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector
 		h.rays = v.rays_per_probe;
 	}
 
-	const uint64_t version = trace.shader.get_version() + blend_irradiance.shader.get_version() + blend_distance.shader.get_version();
+	const uint64_t version = trace.shader.get_version() + blend_irradiance.shader.get_version() + blend_distance.shader.get_version() +
+			relocate.shader.get_version() + classify.shader.get_version();
+	const bool uses_fixed = (v.probe_relocation || v.probe_classification) && uint32_t(v.rays_per_probe) > DDGI_NUM_FIXED_RAYS;
 	DDGIVolumeData gpu = {};
-	gpu.reset_history = h.config_version != v.config_version || h.shader_version != version;
+	gpu.reset_history = h.config_version != v.config_version || h.shader_version != version || h.used_fixed_rays != uses_fixed;
 	if (gpu.reset_history) {
 		h.rotations.seed(0x44444749);
 	}
@@ -151,6 +156,10 @@ bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector
 	gpu.intensity = v.intensity;
 	gpu.infinite_bounces = v.infinite_bounces;
 	gpu.probe_preview_radius = v.probe_preview_radius;
+	gpu.min_frontface_distance = v.min_frontface_distance;
+	gpu.fixed_ray_backface_threshold = v.fixed_ray_backface_threshold;
+	gpu.relocation_enabled = v.probe_relocation;
+	gpu.classification_enabled = v.probe_classification;
 	gpu.active = 1;
 	ERR_FAIL_COND_V(rd->buffer_update(h.bindings.volume, 0, sizeof(gpu), &gpu) != OK, false);
 
@@ -173,10 +182,20 @@ bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, h.bindings.irradiance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, h.bindings.distance),
 			Uniform(RD::UNIFORM_TYPE_SAMPLER, 6, linear_sampler()),
-			Uniform(RD::UNIFORM_TYPE_IMAGE, 7, h.ray_data));
+			Uniform(RD::UNIFORM_TYPE_IMAGE, 7, h.ray_data),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 8, h.bindings.probe_data));
 	const RID scene_set = p_scene.get_uniform_set(trace.shader.get_shader());
-	const RID irr_set = sets->get_cache(blend_irradiance.shader.get_shader(), 0, ubo, samples, Uniform(RD::UNIFORM_TYPE_IMAGE, 2, h.bindings.irradiance));
-	const RID dist_set = sets->get_cache(blend_distance.shader.get_shader(), 0, ubo, samples, Uniform(RD::UNIFORM_TYPE_IMAGE, 2, h.bindings.distance));
+	const Uniform probes(RD::UNIFORM_TYPE_TEXTURE, 3, h.bindings.probe_data);
+	const RID irr_set = sets->get_cache(blend_irradiance.shader.get_shader(), 0, ubo, samples, Uniform(RD::UNIFORM_TYPE_IMAGE, 2, h.bindings.irradiance), probes);
+	const RID dist_set = sets->get_cache(blend_distance.shader.get_shader(), 0, ubo, samples, Uniform(RD::UNIFORM_TYPE_IMAGE, 2, h.bindings.distance), probes);
+	RID relocate_set, classify_set;
+	const bool update_probes = uses_fixed || (gpu.reset_history && uint32_t(v.rays_per_probe) > DDGI_NUM_FIXED_RAYS);
+	if (update_probes) {
+		const Uniform data(RD::UNIFORM_TYPE_IMAGE, 2, h.bindings.probe_data);
+		relocate_set = sets->get_cache(relocate.shader.get_shader(), 0, ubo, samples, data);
+		classify_set = sets->get_cache(classify.shader.get_shader(), 0, ubo, samples, data);
+		ERR_FAIL_COND_V(relocate_set.is_null() || classify_set.is_null(), false);
+	}
 	ERR_FAIL_COND_V(trace_set.is_null() || scene_set.is_null() || irr_set.is_null() || dist_set.is_null(), false);
 
 	struct TraceParams {
@@ -194,9 +213,16 @@ bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector
 	rd->compute_list_end();
 	rd->draw_command_end_label();
 
-	// Separate lists make RD track the trace's reads of previous history before either atlas is overwritten.
-	dispatch_blend("Yutrel DDGIProbeBlendIrradiance", blend_irradiance.pipeline, irr_set, counts);
-	dispatch_blend("Yutrel DDGIProbeBlendDistance", blend_distance.pipeline, dist_set, counts);
+	// Trace and both blends use last frame's positions and states. Publish new probe data afterwards.
+	const Vector3i tiles(counts.x, counts.z, counts.y);
+	dispatch("Yutrel DDGIProbeBlendIrradiance", blend_irradiance.pipeline, irr_set, tiles);
+	dispatch("Yutrel DDGIProbeBlendDistance", blend_distance.pipeline, dist_set, tiles);
+	if (update_probes) {
+		const Vector3i groups((counts.x * counts.y * counts.z + 31) / 32, 1, 1);
+		dispatch("Yutrel DDGIProbeRelocation", relocate.pipeline, relocate_set, groups);
+		dispatch("Yutrel DDGIProbeClassification", classify.pipeline, classify_set, groups);
+	}
+	h.used_fixed_rays = uses_fixed;
 	h.config_version = v.config_version;
 	h.shader_version = version;
 #ifdef TOOLS_ENABLED
@@ -223,7 +249,8 @@ void DDGIPass::draw_probes(const YutrelPipelineTargets &p_targets, RID p_frame_b
 			Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, p_frame_buffer),
 			Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 1, p_history.bindings.volume),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, p_history.bindings.irradiance),
-			Uniform(RD::UNIFORM_TYPE_SAMPLER, 3, linear_sampler()));
+			Uniform(RD::UNIFORM_TYPE_SAMPLER, 3, linear_sampler()),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, p_history.bindings.probe_data));
 	ERR_FAIL_COND(set.is_null() || pipeline.is_null());
 	struct OutputParams {
 		uint32_t linear, tone_mapping;

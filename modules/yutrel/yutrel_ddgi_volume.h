@@ -80,6 +80,14 @@ public:
 	float get_backface_threshold() const { return settings.backface_threshold; }
 	void set_intensity(float p_value);
 	float get_intensity() const { return settings.intensity; }
+	void set_probe_relocation(bool p_value);
+	bool get_probe_relocation() const { return settings.probe_relocation; }
+	void set_probe_classification(bool p_value);
+	bool get_probe_classification() const { return settings.probe_classification; }
+	void set_min_frontface_distance(float p_value);
+	float get_min_frontface_distance() const { return settings.min_frontface_distance; }
+	void set_fixed_ray_backface_threshold(float p_value);
+	float get_fixed_ray_backface_threshold() const { return settings.fixed_ray_backface_threshold; }
 	void set_probe_preview_radius(float p_value);
 	float get_probe_preview_radius() const { return settings.probe_preview_radius; }
 };

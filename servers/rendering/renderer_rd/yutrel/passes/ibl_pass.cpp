@@ -302,6 +302,7 @@ DDGIBindings IBLPass::get_inactive_ddgi() {
 		inactive_ddgi.irradiance = rd->texture_create(format, {}, { Vector<uint8_t>{ 0, 0, 0, 0 } });
 		ERR_FAIL_COND_V(inactive_ddgi.irradiance.is_null(), DDGIBindings());
 		inactive_ddgi.distance = inactive_ddgi.irradiance;
+	inactive_ddgi.probe_data = inactive_ddgi.irradiance;
 		rd->set_resource_name(inactive_ddgi.irradiance, "Yutrel Empty DDGI Atlas");
 	}
 	return inactive_ddgi;
@@ -326,7 +327,8 @@ void IBLPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer,
 			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 9, sh_buffer),
 			Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 10, p_ddgi.volume),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 11, p_ddgi.irradiance),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 12, p_ddgi.distance));
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 12, p_ddgi.distance),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, p_ddgi.probe_data));
 	const IBLParams params = { p_sky, get_prefilter_max_mip(), p_indirect_only };
 	draw_fullscreen("Yutrel IBLPass", Color(0.25, 0.7, 0.85), p_targets.region, p_targets.lighting_framebuffer, lighting_pipeline, set, &params, sizeof(params));
 }

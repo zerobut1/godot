@@ -6,6 +6,8 @@ import ddgi_probe_blend;
 [numthreads(16, 16, 1)]
 void compute_main(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint lane : SV_GroupIndex, uint3 tid : SV_DispatchThreadID)
 {
+	if (!blend_probe_is_active(group))
+		return;
 	uint backfaces;
 	float2 moments = integrate_rays(group, local.xy, lane, 16, true, backfaces).xy;
 	bool border = is_border(local.xy, 16);

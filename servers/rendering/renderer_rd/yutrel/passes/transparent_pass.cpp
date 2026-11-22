@@ -106,7 +106,8 @@ void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame
 			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 11, p_has_ibl ? p_ibl.get_sh_buffer() : fallback_sh),
 			Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 12, p_ddgi.volume),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, p_ddgi.irradiance),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_ddgi.distance));
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_ddgi.distance),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 15, p_ddgi.probe_data));
 	const RID framebuffer = FramebufferCacheRD::get_singleton()->get_cache(p_targets.scene_color, p_targets.scene_depth);
 	ERR_FAIL_COND(set.is_null() || framebuffer.is_null());
 

@@ -1,8 +1,8 @@
 import brdf;
 import common;
 
-// Y-up, X-fastest. ProbeData in Step 2B uses int3(grid.x, grid.z, grid.y)
-// with xyz = relocation / spacing and w = state. All probes currently have zero offset.
+public static const uint DDGI_NUM_FIXED_RAYS = 32;
+
 public struct DDGIVolumeData
 {
 	public float3 origin;
@@ -17,11 +17,50 @@ public struct DDGIVolumeData
 	public uint infinite_bounces, reset_history;
 	public float probe_preview_radius;
 	public uint active;
+	public float min_frontface_distance, fixed_ray_backface_threshold;
+	public uint relocation_enabled, classification_enabled;
 };
 
-public float3 ddgi_probe_world_position(int3 grid, DDGIVolumeData v)
+public bool ddgi_uses_fixed_rays(DDGIVolumeData v)
+{
+	return (v.relocation_enabled != 0 || v.classification_enabled != 0) && v.rays_per_probe > DDGI_NUM_FIXED_RAYS;
+}
+
+public uint ddgi_first_blend_ray(DDGIVolumeData v)
+{
+	return ddgi_uses_fixed_rays(v) ? DDGI_NUM_FIXED_RAYS : 0u;
+}
+
+// X runs fastest, then Z, with one XZ plane per array layer.
+public int3 ddgi_probe_grid(uint index, DDGIVolumeData v)
+{
+	return int3(index % v.probe_counts.x, index / (v.probe_counts.x * v.probe_counts.z),
+			(index / v.probe_counts.x) % v.probe_counts.z);
+}
+
+public int3 ddgi_probe_data_coord(int3 grid)
+{
+	return int3(grid.x, grid.z, grid.y);
+}
+
+public float3 ddgi_probe_base_position(int3 grid, DDGIVolumeData v)
 {
 	return v.origin + (float3(grid) - 0.5 * (v.probe_counts - 1)) * v.spacing;
+}
+
+public float3 ddgi_probe_world_position(int3 grid, DDGIVolumeData v, Texture2DArray<float4> probe_data)
+{
+	float3 base = ddgi_probe_base_position(grid, v);
+	if (v.relocation_enabled != 0 && v.reset_history == 0 && ddgi_uses_fixed_rays(v))
+		return base + probe_data.Load(int4(ddgi_probe_data_coord(grid), 0)).xyz * v.spacing;
+	return base;
+}
+
+public bool ddgi_probe_is_active(int3 grid, DDGIVolumeData v, Texture2DArray<float4> probe_data)
+{
+	if (v.classification_enabled == 0 || v.reset_history != 0 || !ddgi_uses_fixed_rays(v))
+		return true;
+	return probe_data.Load(int4(ddgi_probe_data_coord(grid), 0)).w < 0.5;
 }
 
 public float3 ddgi_get_probe_uv(int3 grid, float2 oct, int interior, DDGIVolumeData v)
@@ -35,6 +74,7 @@ public struct DDGIResources
 {
 	public Texture2DArray<float4> irradiance;
 	public Texture2DArray<float2> distance;
+	public Texture2DArray<float4> probe_data;
 	public SamplerState linear_clamp;
 };
 
@@ -66,7 +106,10 @@ public float3 ddgi_spherical_fibonacci(uint ray, uint count)
 
 public float3 ddgi_ray_direction(uint ray, DDGIVolumeData v)
 {
-	float3 dir = ddgi_spherical_fibonacci(ray, v.rays_per_probe);
+	uint first = ddgi_first_blend_ray(v);
+	if (ray < first)
+		return normalize(ddgi_spherical_fibonacci(ray, DDGI_NUM_FIXED_RAYS));
+	float3 dir = ddgi_spherical_fibonacci(ray - first, v.rays_per_probe - first);
 	float4 q = v.ray_rotation;
 	return normalize(dir + 2 * cross(q.xyz, cross(q.xyz, dir) + q.w * dir));
 }
@@ -89,9 +132,9 @@ public float ddgi_luminance(float3 color)
 
 public float3 ddgi_get_volume_irradiance(float3 world, float3 bias, float3 n, DDGIVolumeData v, DDGIResources probes)
 {
-	float3 grid = clamp((world + bias - v.origin) / v.spacing + 0.5 * (v.probe_counts - 1), 0, v.probe_counts - 1);
-	int3 base = int3(grid);
-	float3 alpha = grid - base;
+	float3 biased_world = world + bias;
+	int3 base = int3(clamp((biased_world - v.origin) / v.spacing + 0.5 * (v.probe_counts - 1), 0, v.probe_counts - 1));
+	float3 alpha = saturate((biased_world - ddgi_probe_base_position(base, v)) / v.spacing);
 	float3 sum = 0;
 	float weights = 0;
 	float2 oct = ddgi_oct_encode(n);
@@ -99,7 +142,9 @@ public float3 ddgi_get_volume_irradiance(float3 world, float3 bias, float3 n, DD
 	{
 		int3 offset = int3(i, i >> 1, i >> 2) & 1;
 		int3 probe = min(base + offset, v.probe_counts - 1);
-		float3 to_probe = ddgi_probe_world_position(probe, v) - world;
+		if (!ddgi_probe_is_active(probe, v, probes.probe_data))
+			continue;
+		float3 to_probe = ddgi_probe_world_position(probe, v, probes.probe_data) - world;
 		float wrap = 0.5 * (dot(normalize_or(to_probe, n), n) + 1);
 		float weight = wrap * wrap + 0.2;
 		float3 biased = to_probe - bias;
@@ -119,6 +164,8 @@ public float3 ddgi_get_volume_irradiance(float3 world, float3 bias, float3 n, DD
 		sum += weight * pow(max(encoded, 0), 0.5 * v.irradiance_gamma);
 		weights += weight;
 	}
+	if (weights <= 0)
+		return float3(0);
 	sum /= weights;
 	return sum * sum * (2 * PI);
 }

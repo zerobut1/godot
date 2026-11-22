@@ -53,6 +53,10 @@ struct YutrelDDGISettings {
 	float brightness_threshold = 0.1f;
 	float backface_threshold = 0.1f;
 	float intensity = 1.0f;
+	bool probe_relocation = true;
+	bool probe_classification = true;
+	float min_frontface_distance = 0.2f;
+	float fixed_ray_backface_threshold = 0.25f;
 	float probe_preview_radius = 0.12f;
 
 	uint64_t config_version = 0;

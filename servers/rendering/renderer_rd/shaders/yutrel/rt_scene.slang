@@ -127,7 +127,7 @@ public bool trace_shadow_ray(float3 origin, float3 dir, float t_min, float t_max
 	return q.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
 }
 
-public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, out RTHit hit, bool include_backfaces = false)
+public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, out RTHit hit, bool include_backfaces = false, bool distance_only = false)
 {
 	hit = {};
 	RayDesc ray = { origin, t_min, dir, t_max };
@@ -157,19 +157,19 @@ public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, o
 		if (include_backfaces || (mat.flags & DOUBLE_SIDED) != 0 || ((dot(face, dir) < 0) != ((mat.flags & CULL_FRONT) != 0)))
 			break;
 	}
+	hit.t = q.CommittedRayT();
+	hit.is_front_face = dot(face, dir) < 0;
+	hit.is_double_sided = (mat.flags & DOUBLE_SIDED) != 0;
+	if (distance_only || (include_backfaces && !hit.is_front_face && !hit.is_double_sided))
+		return true;
+
 	float3 w = tri.weights;
 	RTVertex a = tri.a, b = tri.b, c = tri.c;
 	RTMaterialTextures maps = rt_material_textures[s.material_id];
 	float2 uv = tri.uv(mat);
-	hit.t = q.CommittedRayT();
 	float3 local = a.position + (b.position - a.position) * w.y + (c.position - a.position) * w.z;
 	hit.world_pos = mul_3x4(inst.model, float4(local, 1));
-	hit.is_front_face = dot(face, dir) < 0;
 	hit.geometric_normal = hit.is_front_face ? face : -face;
-	hit.is_double_sided = (mat.flags & DOUBLE_SIDED) != 0;
-	// Probe blending only needs the signed distance for a single-sided backface.
-	if (include_backfaces && !hit.is_front_face && !hit.is_double_sided)
-		return true;
 	hit.is_unlit = (mat.flags & UNLIT) != 0;
 	float3 n = normalize_or(mul_normal_3x3(inst.normal, a.normal * w.x + b.normal * w.y + c.normal * w.z), face);
 	float4 tangent = a.tangent * w.x + b.tangent * w.y + c.tangent * w.z;

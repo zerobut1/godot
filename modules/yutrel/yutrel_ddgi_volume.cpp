@@ -195,6 +195,28 @@ void YutrelDDGIVolume::set_intensity(float p_value) {
 	_publish();
 }
 
+void YutrelDDGIVolume::set_probe_relocation(bool p_value) {
+	settings.probe_relocation = p_value;
+	_publish();
+}
+
+void YutrelDDGIVolume::set_probe_classification(bool p_value) {
+	settings.probe_classification = p_value;
+	_publish();
+}
+
+void YutrelDDGIVolume::set_min_frontface_distance(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	settings.min_frontface_distance = CLAMP(p_value, 0.01f, 2.0f);
+	_publish();
+}
+
+void YutrelDDGIVolume::set_fixed_ray_backface_threshold(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	settings.fixed_ray_backface_threshold = CLAMP(p_value, 0.0f, 1.0f);
+	_publish();
+}
+
 void YutrelDDGIVolume::set_probe_preview_radius(float p_value) {
 	ERR_FAIL_COND(!Math::is_finite(p_value));
 	settings.probe_preview_radius = MAX(p_value, 0.01f);
@@ -252,6 +274,20 @@ void YutrelDDGIVolume::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_intensity", "value"), &YutrelDDGIVolume::set_intensity);
 	ClassDB::bind_method(D_METHOD("get_intensity"), &YutrelDDGIVolume::get_intensity);
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "intensity", PROPERTY_HINT_RANGE, "0,16,0.01"), "set_intensity", "get_intensity");
+
+	ADD_GROUP("Relocation & Classification", "");
+	ClassDB::bind_method(D_METHOD("set_probe_relocation", "value"), &YutrelDDGIVolume::set_probe_relocation);
+	ClassDB::bind_method(D_METHOD("get_probe_relocation"), &YutrelDDGIVolume::get_probe_relocation);
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "probe_relocation"), "set_probe_relocation", "get_probe_relocation");
+	ClassDB::bind_method(D_METHOD("set_probe_classification", "value"), &YutrelDDGIVolume::set_probe_classification);
+	ClassDB::bind_method(D_METHOD("get_probe_classification"), &YutrelDDGIVolume::get_probe_classification);
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "probe_classification"), "set_probe_classification", "get_probe_classification");
+	ClassDB::bind_method(D_METHOD("set_min_frontface_distance", "value"), &YutrelDDGIVolume::set_min_frontface_distance);
+	ClassDB::bind_method(D_METHOD("get_min_frontface_distance"), &YutrelDDGIVolume::get_min_frontface_distance);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "min_frontface_distance", PROPERTY_HINT_RANGE, "0.01,2,0.01"), "set_min_frontface_distance", "get_min_frontface_distance");
+	ClassDB::bind_method(D_METHOD("set_fixed_ray_backface_threshold", "value"), &YutrelDDGIVolume::set_fixed_ray_backface_threshold);
+	ClassDB::bind_method(D_METHOD("get_fixed_ray_backface_threshold"), &YutrelDDGIVolume::get_fixed_ray_backface_threshold);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "fixed_ray_backface_threshold", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_fixed_ray_backface_threshold", "get_fixed_ray_backface_threshold");
 
 	ADD_GROUP("Debug", "");
 	ClassDB::bind_method(D_METHOD("set_probe_preview_radius", "value"), &YutrelDDGIVolume::set_probe_preview_radius);

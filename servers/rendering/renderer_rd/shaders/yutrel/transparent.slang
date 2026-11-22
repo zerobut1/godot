@@ -25,6 +25,7 @@ struct TransparentDirectionalLight
 [[vk::binding(12, 0)]] ConstantBuffer<DDGIVolumeData> volume;
 [[vk::binding(13, 0)]] Texture2DArray<float4> probe_irradiance;
 [[vk::binding(14, 0)]] Texture2DArray<float2> probe_distance;
+[[vk::binding(15, 0)]] Texture2DArray<float4> probe_data;
 
 struct DrawData
 {
@@ -77,7 +78,7 @@ float4 fragment_main(VertexOutput input, bool is_front_face : SV_IsFrontFace) : 
 		if (draw.has_ibl != 0)
 		{
 			IBLParams sky = { draw.sky_intensity, draw.sky_sin_rot, draw.sky_cos_rot, draw.prefilter_max_mip, 0 };
-			DDGIResources probes = { probe_irradiance, probe_distance, linear_clamp };
+			DDGIResources probes = { probe_irradiance, probe_distance, probe_data, linear_clamp };
 			color += evaluate_ibl(p, surface.material_ao, sky, prefilter_cubemap, cube_sampler, sh,
 			world, volume, probes);
 		}

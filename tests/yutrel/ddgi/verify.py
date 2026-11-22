@@ -5,9 +5,14 @@ from pathlib import Path
 
 FIXTURE = Path(__file__).resolve().parent
 RELOAD_DEPENDENCIES = {
-    "ddgi_common.slang": ["ddgi_probe_trace.slang", "ddgi_blend_irradiance.slang", "ddgi_blend_distance.slang", "ibl.slang", "transparent.slang"],
+    "ddgi_common.slang": [
+        "ddgi_probe_trace.slang", "ddgi_blend_irradiance.slang", "ddgi_blend_distance.slang",
+        "ddgi_probe_relocation.slang", "ddgi_probe_classification.slang", "ibl.slang", "transparent.slang",
+    ],
     "ddgi_probe_trace.slang": ["ddgi_probe_trace.slang"],
     "ddgi_blend_irradiance.slang": ["ddgi_blend_irradiance.slang"],
+    "ddgi_probe_relocation.slang": ["ddgi_probe_relocation.slang"],
+    "ddgi_probe_classification.slang": ["ddgi_probe_classification.slang"],
 }
 
 if __name__ == "__main__":

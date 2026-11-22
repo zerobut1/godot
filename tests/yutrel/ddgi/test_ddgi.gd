@@ -91,6 +91,7 @@ func furnace() -> void:
 	# radiance field and exercise both the 16-ray minimum and 1024-ray maximum.
 	volume.hysteresis = 0.0
 	volume.max_ray_distance = 0.1
+	volume.probe_classification = false
 	volume.rays_per_probe = 16
 	var constant_low := probe(await snapshot(32), item.position)
 	volume.rays_per_probe = 1024
@@ -105,6 +106,7 @@ func furnace() -> void:
 	volume.irradiance_gamma = 5
 	volume.hysteresis = 0.5
 	volume.max_ray_distance = 100
+	volume.probe_classification = true
 	volume.rays_per_probe = 257
 	# Suppressing the active volume proves the furnace measured its contribution.
 	volume.intensity = 0
@@ -144,6 +146,84 @@ func furnace() -> void:
 	volume.size += Vector3.ONE * 0.2
 	check(probe(await snapshot(2), item.position).r < 0.001, "Resizing the grid clears the old atlas")
 	volume.irradiance_threshold = 0.25
+	volume.hysteresis = 0.5
+	reset_geometry()
+
+
+func relocation_and_classification() -> void:
+	# One metre spacing. The angled receiver sits outside the solid's silhouette.
+	# Bias its sample toward the center probe to make that probe's weight measurable.
+	sky.sky_intensity = 1
+	volume.position = Vector3(0, 0, -4)
+	volume.size = Vector3(2, 2, 2)
+	volume.probe_counts = Vector3i(3, 3, 3)
+	volume.rays_per_probe = 288
+	volume.hysteresis = 0
+	volume.view_bias = 0
+	volume.infinite_bounces = false
+	camera.size = 2
+	var white := material(Color.WHITE)
+	var solid_material := material(Color.WHITE)
+	solid_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var receiver := quad(volume.position, Vector2(0.6, 0.6), white)
+	receiver.rotation.y = deg_to_rad(70)
+	volume.normal_bias = 0.18
+	receiver.position = volume.position - receiver.basis.z * volume.normal_bias
+	var solid := box(volume.position + Vector3(0.53, 0, 0), Vector3.ONE * 1.2, solid_material)
+	volume.probe_classification = false
+	volume.probe_relocation = false
+	var trapped := probe(await snapshot(16), receiver.position, 1).r
+	volume.probe_relocation = true
+	var escaped := probe(await snapshot(16), receiver.position, 1).r
+	solid.position.x += 8
+	var cleared := probe(await snapshot(16), receiver.position, 1).r
+	print("DDGI RELOCATION trapped=%.6f escaped=%.6f cleared=%.6f" % [trapped, escaped, cleared])
+	check(escaped > 0.5 and escaped > trapped + 0.25, "A probe just inside the solid escapes and lights the receiver")
+	check(cleared > 0.9, "Moving the solid away restores open-sky illumination")
+
+	# Bury the center probe 0.6 m deep on all axes, beyond the 0.45 m relocation bound.
+	volume.normal_bias = 0.72
+	receiver.position = volume.position - receiver.basis.z * volume.normal_bias
+	solid.position = volume.position
+	# Reset history with the solid in place so a trapped probe starts with black irradiance.
+	volume.probe_classification = true
+	var classified := probe(await snapshot(16), receiver.position, 1).r
+	volume.probe_classification = false
+	var unclassified := probe(await snapshot(16), receiver.position, 1).r
+	print("DDGI BURIED classified=%.6f unclassified=%.6f" % [classified, unclassified])
+	check(classified > 0.5 and classified > unclassified + 0.25, "Rejecting a deeply buried probe preserves the adjacent receiver's illumination")
+
+	# A transparent receiver samples the grid without inserting any triangles into the TLAS.
+	# Leave the grid and ray configuration unchanged while opaque geometry enters and leaves.
+	reset_geometry()
+	volume.probe_classification = true
+	volume.normal_bias = 0.1
+	var transparent_white := material(Color.WHITE)
+	transparent_white.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var witness := quad(volume.position, Vector2.ONE, transparent_white)
+	var wall := box(volume.position + Vector3(8, 0, -0.5), Vector3(2.5, 2.5, 0.1), white)
+	# Start with a black atlas so stale irradiance cannot pass the wake-up check.
+	sky.sky_intensity = 0
+	await snapshot(8)
+	sky.sky_intensity = 1
+	var empty := probe(await snapshot(12), witness.position).r
+	wall.position.x = volume.position.x
+	var lit := await snapshot(16)
+	var awake := probe(lit, witness.position).r
+	var wall_light := probe(lit, wall.position + Vector3(0.8, 0, 0.05)).r
+	wall.position.x += 8
+	var empty_again := probe(await snapshot(12), witness.position).r
+	print("DDGI WAKE empty=%.6f awake=%.6f wall=%.6f empty_again=%.6f" % [empty, awake, wall_light, empty_again])
+	check(empty < 0.01 and empty_again < 0.01, "All eight inactive probes contribute zero even with a white sky")
+	check(awake > 0.9 and wall_light > 0.9, "Fixed rays wake the probes and restore lighting on the entering wall and transparent receiver")
+	# At and below 32 rays, both features must leave the entire ray budget for blending.
+	for rays in [32, 16]:
+		volume.rays_per_probe = rays
+		check(probe(await snapshot(8), witness.position).r > 0.98, "Empty grid stays lit at %d rays" % rays)
+	volume.rays_per_probe = 33
+	check(probe(await snapshot(8), witness.position).r < 0.01, "Classification resumes at 33 rays")
+	camera.size = 6
+	volume.view_bias = 0.25
 	volume.hysteresis = 0.5
 	reset_geometry()
 
@@ -252,7 +332,14 @@ func run() -> void:
 	volume.probe_counts = Vector3i(1, 5, 80)
 	volume.rays_per_probe = 3
 	check(volume.size.is_equal_approx(Vector3(0.01, 2, 0.01)) and volume.probe_counts == Vector3i(2, 5, 64) and volume.rays_per_probe == 16, "Volume setter bounds")
+	check(volume.probe_relocation and volume.probe_classification and is_equal_approx(volume.min_frontface_distance, 0.2) and is_equal_approx(volume.fixed_ray_backface_threshold, 0.25), "Relocation and classification defaults")
+	volume.min_frontface_distance = 3
+	volume.fixed_ray_backface_threshold = -1
+	check(volume.min_frontface_distance == 2 and volume.fixed_ray_backface_threshold == 0, "Relocation and classification setter bounds")
+	volume.min_frontface_distance = 0.2
+	volume.fixed_ray_backface_threshold = 0.25
 	await furnace()
+	await relocation_and_classification()
 	await color_bleeding()
 	await visibility_and_decal()
 	print("DDGI RUNTIME PASS" if failures == 0 else "DDGI RUNTIME FAIL")

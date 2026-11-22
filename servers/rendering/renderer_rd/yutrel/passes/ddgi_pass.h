@@ -43,6 +43,8 @@ class DDGIPass {
 	YutrelComputeShader trace;
 	YutrelComputeShader blend_irradiance;
 	YutrelComputeShader blend_distance;
+	YutrelComputeShader relocate;
+	YutrelComputeShader classify;
 	YutrelShader debug_shader;
 	PipelineCacheRD debug_pipeline;
 	YutrelStorageBuffer light_buffer;
@@ -54,6 +56,7 @@ public:
 		RID ray_data;
 		Vector3i counts;
 		int rays = 0;
+		bool used_fixed_rays = false;
 		uint64_t config_version = 0;
 		uint64_t shader_version = 0;
 		RandomPCG rotations;

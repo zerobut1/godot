@@ -283,7 +283,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	YutrelDDGISettings volume;
 	const bool has_volume = YutrelDDGISettings::get(YutrelRayTracingScene::get_scenario(*p_render_data), volume);
 	const bool needs_ddgi = has_volume && volume.size[volume.size.min_axis_index()] > 0 &&
-			(final || lighting_only || indirect_only) && YutrelRayTracingScene::is_supported(3);
+			(final || lighting_only || indirect_only) && YutrelRayTracingScene::is_supported(4);
 	const bool ibl_ready = (needs_ddgi || draw_lighting || draw_sky || draw_transparent) && ibl_pass.prepare_environment(environment);
 	const bool ddgi_ready = needs_ddgi && ibl_ready && rt_scene.update(*p_render_data, material_bridge) &&
 			ddgi_pass.update(custom->ddgi_history, volume, lights, ibl_pass, sky_params, rt_scene, p_render_data->scene_data->time_step);

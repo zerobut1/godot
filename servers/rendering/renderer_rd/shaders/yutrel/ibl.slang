@@ -17,6 +17,7 @@ import ddgi_common;
 [[vk::binding(10, 0)]] ConstantBuffer<DDGIVolumeData> volume;
 [[vk::binding(11, 0)]] Texture2DArray<float4> probe_irradiance;
 [[vk::binding(12, 0)]] Texture2DArray<float2> probe_distance;
+[[vk::binding(13, 0)]] Texture2DArray<float4> probe_data;
 
 [[vk::push_constant]] ConstantBuffer<IBLParams> params;
 
@@ -39,7 +40,7 @@ float4 fragment_main(float4 position : SV_Position) : SV_Target0
 	GBufferData surface = decode_gbuffer(a, gbuffer_b.Load(pixel), gbuffer_c.Load(pixel));
 	float3 world = reconstruct_world_position(position.xy, depth, frame);
 	ShadingData p = prepare_shading(surface, frame, world, dfg_lut, linear_clamp);
-	DDGIResources probes = { probe_irradiance, probe_distance, linear_clamp };
+	DDGIResources probes = { probe_irradiance, probe_distance, probe_data, linear_clamp };
 	float3 color = evaluate_ibl(p, surface.material_ao, params, prefilter_cubemap, cube_sampler, sh,
 			world, volume, probes);
 	return float4(clamp(sanitize_finite(color), 0.0, 65504.0), 0.0);

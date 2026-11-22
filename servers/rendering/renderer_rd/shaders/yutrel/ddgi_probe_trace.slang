@@ -19,7 +19,8 @@ struct DirectionalLight
 [[vk::binding(5, 0)]] Texture2DArray<float2> distance;
 [[vk::binding(6, 0)]] SamplerState linear_clamp;
 [[vk::binding(7, 0)]] [[vk::image_format("rgba16f")]] RWTexture2DArray<float4> ray_data;
-// Binding 8 is reserved for the Step 2B ProbeData array.
+[[vk::binding(8, 0)]] Texture2DArray<float4> probe_data;
+
 struct TraceParams
 {
 	uint light_count, has_tlas;
@@ -34,25 +35,40 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 	if (tid.x >= volume.rays_per_probe)
 		return;
 	int3 grid = int3(tid.y % volume.probe_counts.x, tid.z, tid.y / volume.probe_counts.x);
+	bool uses_fixed = ddgi_uses_fixed_rays(volume);
+	bool is_fixed_ray = uses_fixed && tid.x < DDGI_NUM_FIXED_RAYS;
+	bool active = ddgi_probe_is_active(grid, volume, probe_data);
+	if (!active && !is_fixed_ray)
+		return;
+
 	float3 dir = ddgi_ray_direction(tid.x, volume);
-	RTHit hit;
+	float3 probe_position = ddgi_probe_world_position(grid, volume, probe_data);
+	RTHit hit = {};
+	bool found = false;
+	if (params.has_tlas != 0)
+		found = trace_surface(probe_position, dir, 0, volume.max_ray_distance, hit, true, is_fixed_ray);
+	// The miss sentinel becomes +infinity in FP16. Distance blending clamps it before squaring.
+	float hit_t = 1e27;
+	if (found)
+		hit_t = !hit.is_front_face && !hit.is_double_sided ? -0.2 * hit.t : hit.t;
+	if (is_fixed_ray)
+	{
+		ray_data[tid] = float4(0, 0, 0, hit_t);
+		return;
+	}
+
 	float3 radiance;
-	float hit_t;
-	if (params.has_tlas == 0 || !trace_surface(ddgi_probe_world_position(grid, volume), dir, 0, volume.max_ray_distance, hit, true))
+	if (!found)
 	{
 		float3 sky_dir = inverse_sky_rotation(dir, params.sky_sin_rot, params.sky_cos_rot);
 		radiance = sky_cubemap.SampleLevel(cube_sampler, sky_dir, 0).rgb * params.sky_intensity;
-		// The reference miss sentinel becomes +infinity in FP16. Distance blending clamps it before squaring.
-		hit_t = 1e27;
 	}
 	else if (!hit.is_front_face && !hit.is_double_sided)
 	{
 		radiance = 0;
-		hit_t = -0.2 * hit.t;
 	}
 	else
 	{
-		hit_t = hit.t;
 		radiance = hit.emissive;
 		if (hit.is_unlit)
 			radiance += hit.base_color;
@@ -73,7 +89,7 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 				if (weight > 0)
 				{
 					float3 bias = ddgi_surface_bias(hit.shading_normal, dir, volume);
-					DDGIResources probes = { irradiance, distance, linear_clamp };
+					DDGIResources probes = { irradiance, distance, probe_data, linear_clamp };
 					float3 E = ddgi_get_volume_irradiance(hit.world_pos, bias, hit.shading_normal, volume, probes);
 					radiance += min(albedo, 0.9) * (weight / PI) * E;
 				}

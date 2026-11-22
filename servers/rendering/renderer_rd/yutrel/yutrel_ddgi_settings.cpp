@@ -60,7 +60,8 @@ bool YutrelDDGISettings::publish(RID p_scenario, YutrelDDGISettings p_settings) 
 		const auto &old = entries[i];
 		if (old.owner == p_settings.owner) {
 			const bool reset = old.origin != p_settings.origin || old.size != p_settings.size ||
-					old.probe_counts != p_settings.probe_counts || old.irradiance_gamma != p_settings.irradiance_gamma;
+					old.probe_counts != p_settings.probe_counts || old.irradiance_gamma != p_settings.irradiance_gamma ||
+					old.probe_relocation != p_settings.probe_relocation || old.probe_classification != p_settings.probe_classification;
 			p_settings.config_version = reset ? next_version++ : old.config_version;
 			entries.write[i] = p_settings;
 			return false;
