@@ -30,16 +30,17 @@
 
 #pragma once
 
+#include "passes/base_pass.h"
+#include "passes/debug_view_pass.h"
+#include "passes/directional_light_pass.h"
+#include "passes/output_pass.h"
 #include "yutrel_material.h"
-#include "yutrel_render_data.h"
-#include "yutrel_shader.h"
 
 #include "servers/rendering/renderer_geometry_instance.h"
-#include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 
 #ifdef TOOLS_ENABLED
-#include "editor_gizmo_pass.h"
+#include "passes/editor_gizmo_pass.h"
 #endif
 
 namespace RendererSceneRenderImplementation {
@@ -66,44 +67,20 @@ class RenderYutrel : public RendererSceneRenderRD {
 		void set_softshadow_projector_pairing(bool p_softshadow, bool p_projector) override {}
 	};
 
-	struct DrawItem {
-		void *surface = nullptr;
-		bool mirrored = false;
-		bool double_sided = false;
-		RID vertex_array;
-		RID index_array;
-		RID pipeline;
-	};
-
 	YutrelMaterialBridge material_bridge;
-	YutrelShader base_shader;
-	YutrelShader lighting_shader;
-	YutrelShader output_shader;
-	YutrelShader debug_shader;
-	YutrelShader dfg_shader;
-	PipelineCacheRD base_pipelines[2][2];
-	PipelineCacheRD lighting_pipeline;
-	PipelineCacheRD output_pipeline;
-	PipelineCacheRD debug_pipeline;
 	RID frame_buffer;
-	RID dfg_lut;
-	uint64_t dfg_baked_version = 0;
-	YutrelStorageBuffer instance_buffer;
-	YutrelStorageBuffer material_buffer;
-	LocalVector<DrawItem> draws;
-	LocalVector<YutrelInstanceData> instances;
-	LocalVector<YutrelMaterialData> materials;
-	LocalVector<RID> material_sets;
+	BasePass base_pass;
+	DirectionalLightPass directional_light_pass;
+	OutputPass output_pass;
+	DebugViewPass debug_view_pass;
 #ifdef TOOLS_ENABLED
 	EditorGizmoPass editor_gizmos;
 #endif
 
 	YutrelFrameData _build_frame_data(const RenderDataRD &p_data, const Rect2i &p_region) const;
-	void _build_draw_list(const RenderDataRD &p_data);
+	void _collect_geometry(const RenderDataRD &p_data);
 	bool _get_native_targets(const RenderDataRD &p_data, YutrelPipelineTargets &r_targets) const;
 	bool _prepare_passes();
-	bool _bake_dfg_lut();
-	void _record_base_pass(const YutrelPipelineTargets &p_targets, RID p_uniform_set, const Color &p_clear_color);
 
 protected:
 	void setup_render_buffer_data(Ref<RenderSceneBuffersRD> p_render_buffers) override;

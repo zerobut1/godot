@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  editor_gizmo_pass.h                                                  */
+/*  base_pass.h                                                           */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -30,101 +30,41 @@
 
 #pragma once
 
-#ifdef TOOLS_ENABLED
-
-#include "yutrel_render_data.h"
-#include "yutrel_shader.h"
-
 #include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
-
-class RenderGeometryInstanceBase;
-class RenderSceneDataRD;
+#include "servers/rendering/renderer_rd/yutrel/yutrel_material.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_render_data.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_shader.h"
 
 namespace RendererSceneRenderImplementation {
 
-class EditorGizmoPass {
-	enum Primitive {
-		TRIANGLES,
-		LINES,
-		LINE_STRIP,
-		POINTS,
-		PRIMITIVE_COUNT,
-	};
-
-	struct FrameData {
-		float view_projection[4][4];
-		float camera_x[4];
-		float camera_y[4];
-		float camera_z[4];
-		float camera_position[4];
-		float inverse_viewport_size[2];
-		float orthogonal_scale;
-		uint32_t convert_to_srgb;
-	};
-	static_assert(sizeof(FrameData) == 144);
-	static_assert(offsetof(FrameData, inverse_viewport_size) == 128);
-	static_assert(offsetof(FrameData, convert_to_srgb) == 140);
-
-	struct GizmoData {
-		YutrelInstanceData instance;
-		float albedo[4];
-		float modulation[4];
-		float uv_scale[2];
-		float alpha_scissor;
-		float grid_size;
-		float point_size;
-		uint32_t flags;
-		float padding[2] = {};
-	};
-	static_assert(sizeof(GizmoData) == 208);
-	static_assert(offsetof(GizmoData, albedo) == 144);
-	static_assert(offsetof(GizmoData, uv_scale) == 176);
-	static_assert(offsetof(GizmoData, flags) == 196);
-
+class BasePass {
 	struct DrawItem {
 		void *surface = nullptr;
-		GizmoData data = {};
-		RID texture;
-		Primitive primitive = TRIANGLES;
-		bool on_top = false;
-		int32_t priority = 0;
-		real_t depth = 0;
-		uint32_t point_instances = 0;
-		RID uniform_set;
-		RID pipeline;
+		bool mirrored = false;
+		bool double_sided = false;
 		RID vertex_array;
 		RID index_array;
-
-		bool operator<(const DrawItem &p_other) const {
-			if (on_top != p_other.on_top) {
-				return !on_top;
-			}
-			if (priority != p_other.priority) {
-				return priority < p_other.priority;
-			}
-			return depth > p_other.depth;
-		}
+		RID pipeline;
 	};
 
-	YutrelShader shader;
-	PipelineCacheRD pipelines[PRIMITIVE_COUNT][2];
-	RID frame_buffer;
-	RID white_texture;
+	YutrelShader base_shader;
+	PipelineCacheRD base_pipelines[2][2];
 	YutrelStorageBuffer instance_buffer;
+	YutrelStorageBuffer material_buffer;
 	LocalVector<DrawItem> draws;
-	LocalVector<GizmoData> instances;
+	LocalVector<YutrelInstanceData> instances;
+	LocalVector<YutrelMaterialData> materials;
+	LocalVector<RID> material_sets;
+	HashMap<RID, int> material_indices;
 
-	bool _prepare_shader();
-	void _add_mesh(const RenderGeometryInstanceBase &p_instance, RID p_mesh, const Transform3D &p_transform, const Transform3D &p_camera, const Color &p_modulation);
+	void _record(const YutrelPipelineTargets &p_targets, RID p_uniform_set, const Color &p_clear_color);
 
 public:
-	~EditorGizmoPass();
-
-	void clear() { draws.clear(); }
-	void add(const RenderGeometryInstanceBase &p_instance, const Transform3D &p_camera);
-	void render(const YutrelPipelineTargets &p_targets, const RenderSceneDataRD &p_scene, const YutrelFrameData &p_frame);
+	bool prepare();
+	void clear();
+	void add(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_material_bridge);
+	bool has_draws() const { return !draws.is_empty(); }
+	bool render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const Color &p_clear_color);
 };
 
 } // namespace RendererSceneRenderImplementation
-
-#endif // TOOLS_ENABLED

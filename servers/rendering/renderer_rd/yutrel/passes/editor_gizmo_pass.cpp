@@ -30,8 +30,6 @@
 
 #include "editor_gizmo_pass.h"
 
-#include "yutrel_material.h"
-
 #ifdef TOOLS_ENABLED
 
 #include "core/string/print_string.h"
@@ -41,6 +39,7 @@
 #include "servers/rendering/renderer_rd/storage_rd/render_scene_data_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_material.h"
 
 namespace RendererSceneRenderImplementation {
 
@@ -176,12 +175,7 @@ void EditorGizmoPass::_add_mesh(const RenderGeometryInstanceBase &p_instance, RI
 }
 
 bool EditorGizmoPass::_prepare_shader() {
-	const uint64_t version = shader.get_version();
-	if (!shader.is_loaded()) {
-		shader.load("editor_gizmo.slang");
-	}
-	shader.poll_hot_reload();
-	if (shader.get_version() != version) {
+	if (refresh_shader(shader, "editor_gizmo.slang")) {
 		const RD::RenderPrimitive primitives[] = { RD::RENDER_PRIMITIVE_TRIANGLES, RD::RENDER_PRIMITIVE_LINES, RD::RENDER_PRIMITIVE_LINESTRIPS, RD::RENDER_PRIMITIVE_POINTS };
 		RD::PipelineColorBlendState blend = RD::PipelineColorBlendState::create_blend();
 		blend.attachments.write[0].src_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
