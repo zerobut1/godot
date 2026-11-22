@@ -1020,7 +1020,7 @@ Error RenderingDeviceDriverVulkan::_check_device_capabilities() {
 		functions.GetPhysicalDeviceFeatures2(physical_device, &device_features_2);
 
 		if (use_1_2_features) {
-			device_capabilities.sampled_image_array_non_uniform_indexing = device_features_vk_1_2.shaderSampledImageArrayNonUniformIndexing;
+			sampled_image_array_non_uniform_indexing = device_features_vk_1_2.shaderSampledImageArrayNonUniformIndexing;
 #ifdef MACOS_ENABLED
 			ERR_FAIL_COND_V_MSG(!device_features_vk_1_2.shaderSampledImageArrayNonUniformIndexing, ERR_CANT_CREATE, "Your GPU doesn't support shaderSampledImageArrayNonUniformIndexing which is required to use the Vulkan-based renderers in Godot.");
 #endif
@@ -1463,7 +1463,7 @@ Error RenderingDeviceDriverVulkan::_initialize_device(const LocalVector<VkDevice
 	}
 
 	VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing = {};
-	if (device_capabilities.sampled_image_array_non_uniform_indexing) {
+	if (sampled_image_array_non_uniform_indexing) {
 		descriptor_indexing.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
 		descriptor_indexing.pNext = create_info_next;
 		descriptor_indexing.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;

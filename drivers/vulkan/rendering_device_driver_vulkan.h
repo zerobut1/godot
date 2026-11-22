@@ -164,6 +164,7 @@ class RenderingDeviceDriverVulkan : public RenderingDeviceDriver {
 	bool vulkan_memory_model_device_scope_support = false;
 	AccelerationStructureCapabilities acceleration_structure_capabilities;
 	bool ray_query_support = false;
+	bool sampled_image_array_non_uniform_indexing = false;
 	RaytracingCapabilities raytracing_capabilities;
 	bool pipeline_cache_control_support = false;
 	bool device_fault_support = false;

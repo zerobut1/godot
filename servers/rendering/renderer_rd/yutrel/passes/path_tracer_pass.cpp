@@ -39,7 +39,7 @@ namespace RendererSceneRenderImplementation {
 bool PathTracerPass::is_supported() {
 	RD *rd = RD::get_singleton();
 	constexpr uint32_t sampled_images = YutrelRayTracingScene::MAX_TEXTURES + 1; // Includes the sky.
-	return rd->has_feature(RD::SUPPORTS_RAY_QUERY) && rd->get_device_capabilities().sampled_image_array_non_uniform_indexing &&
+	return rd->has_feature(RD::SUPPORTS_RAY_QUERY) &&
 			rd->limit_get(RD::LIMIT_MAX_TEXTURES_PER_SHADER_STAGE) >= sampled_images && rd->limit_get(RD::LIMIT_MAX_TEXTURES_PER_UNIFORM_SET) >= sampled_images;
 }
 
