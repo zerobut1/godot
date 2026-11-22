@@ -76,10 +76,10 @@ class EditorGizmoPass {
 		uint32_t flags;
 		float padding[2] = {};
 	};
-	static_assert(sizeof(GizmoData) == 192);
-	static_assert(offsetof(GizmoData, albedo) == 128);
-	static_assert(offsetof(GizmoData, uv_scale) == 160);
-	static_assert(offsetof(GizmoData, flags) == 180);
+	static_assert(sizeof(GizmoData) == 208);
+	static_assert(offsetof(GizmoData, albedo) == 144);
+	static_assert(offsetof(GizmoData, uv_scale) == 176);
+	static_assert(offsetof(GizmoData, flags) == 196);
 
 	struct DrawItem {
 		void *surface = nullptr;
@@ -118,7 +118,6 @@ class EditorGizmoPass {
 	void _add_mesh(const RenderGeometryInstanceBase &p_instance, RID p_mesh, const Transform3D &p_transform, const Transform3D &p_camera, const Color &p_modulation);
 
 public:
-	EditorGizmoPass();
 	~EditorGizmoPass();
 
 	void clear() { draws.clear(); }

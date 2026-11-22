@@ -34,21 +34,40 @@
 
 namespace RendererSceneRenderImplementation {
 
-struct YutrelFrameData {
-	float view_projection[4][4] = {};
-	float light_direction[4] = {};
-	float light_radiance[3] = {};
-	uint32_t light_cull_mask = 0;
+struct YutrelDirectionalLight {
+	float direction[4] = {};
+	float radiance[4] = {};
 };
 
-static_assert(sizeof(YutrelFrameData) == 96);
-static_assert(offsetof(YutrelFrameData, light_direction) == 64);
-static_assert(offsetof(YutrelFrameData, light_radiance) == 80);
-static_assert(offsetof(YutrelFrameData, light_cull_mask) == 92);
+static_assert(sizeof(YutrelDirectionalLight) == 32);
+static_assert(offsetof(YutrelDirectionalLight, radiance) == 16);
+
+struct YutrelFrameData {
+	float view_projection[4][4] = {};
+	float inv_view_projection[4][4] = {};
+	float camera_position[4] = {};
+	float camera_forward[4] = {};
+	float viewport_origin[2] = {};
+	float inv_viewport_size[2] = {};
+	uint32_t light_count = 0;
+	float padding0 = 0;
+	float padding1[2] = {};
+	YutrelDirectionalLight lights[4];
+};
+
+static_assert(sizeof(YutrelFrameData) == 320);
+static_assert(offsetof(YutrelFrameData, inv_view_projection) == 64);
+static_assert(offsetof(YutrelFrameData, camera_position) == 128);
+static_assert(offsetof(YutrelFrameData, camera_forward) == 144);
+static_assert(offsetof(YutrelFrameData, viewport_origin) == 160);
+static_assert(offsetof(YutrelFrameData, light_count) == 176);
+static_assert(offsetof(YutrelFrameData, lights) == 192);
 
 struct YutrelInstanceData {
 	enum Flags : uint32_t {
 		COMPRESSED = 1,
+		HAS_TANGENT = 2,
+		HAS_COLOR = 4,
 	};
 
 	float model[3][4] = {};
@@ -56,7 +75,10 @@ struct YutrelInstanceData {
 	float aabb_position[3] = {};
 	uint32_t flags = 0;
 	float aabb_size[3] = {};
-	uint32_t layer_mask = 0;
+	uint32_t padding0 = 0;
+	float uv_scale[2] = {};
+	uint32_t material_id = 0;
+	uint32_t padding1 = 0;
 
 	void set_transform(const Transform3D &p_transform, const Basis &p_normal) {
 		RendererRD::MaterialStorage::store_transform_transposed_3x4(p_transform, &model[0][0]);
@@ -76,19 +98,24 @@ struct YutrelInstanceData {
 	}
 };
 
-static_assert(sizeof(YutrelInstanceData) == 128);
+static_assert(sizeof(YutrelInstanceData) == 144);
 static_assert(offsetof(YutrelInstanceData, normal) == 48);
 static_assert(offsetof(YutrelInstanceData, aabb_position) == 96);
 static_assert(offsetof(YutrelInstanceData, flags) == 108);
 static_assert(offsetof(YutrelInstanceData, aabb_size) == 112);
-static_assert(offsetof(YutrelInstanceData, layer_mask) == 124);
+static_assert(offsetof(YutrelInstanceData, uv_scale) == 128);
+static_assert(offsetof(YutrelInstanceData, material_id) == 136);
 
 struct YutrelPipelineTargets {
 	RID render_target;
 	RID scene_color;
 	RID scene_depth;
+	RID gbuffer_a;
+	RID gbuffer_b;
+	RID gbuffer_c;
 	RID output_color;
-	RID forward_framebuffer;
+	RID base_framebuffer;
+	RID lighting_framebuffer;
 	RID output_framebuffer;
 	Rect2i region;
 	bool output_linear = false;

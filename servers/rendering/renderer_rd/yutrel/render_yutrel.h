@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "yutrel_material.h"
 #include "yutrel_render_data.h"
 #include "yutrel_shader.h"
 
@@ -68,32 +69,44 @@ class RenderYutrel : public RendererSceneRenderRD {
 	struct DrawItem {
 		void *surface = nullptr;
 		bool mirrored = false;
+		bool double_sided = false;
 		RID vertex_array;
 		RID index_array;
 		RID pipeline;
 	};
 
-	YutrelShader forward_shader;
+	YutrelMaterialBridge material_bridge;
+	YutrelShader base_shader;
+	YutrelShader lighting_shader;
 	YutrelShader output_shader;
-	PipelineCacheRD forward_pipelines[2];
+	YutrelShader debug_shader;
+	YutrelShader dfg_shader;
+	PipelineCacheRD base_pipelines[2][2];
+	PipelineCacheRD lighting_pipeline;
 	PipelineCacheRD output_pipeline;
+	PipelineCacheRD debug_pipeline;
 	RID frame_buffer;
+	RID dfg_lut;
+	uint64_t dfg_baked_version = 0;
 	YutrelStorageBuffer instance_buffer;
+	YutrelStorageBuffer material_buffer;
 	LocalVector<DrawItem> draws;
 	LocalVector<YutrelInstanceData> instances;
+	LocalVector<YutrelMaterialData> materials;
+	LocalVector<RID> material_sets;
 #ifdef TOOLS_ENABLED
 	EditorGizmoPass editor_gizmos;
 #endif
 
-	YutrelFrameData _build_frame_data(const RenderDataRD &p_data) const;
+	YutrelFrameData _build_frame_data(const RenderDataRD &p_data, const Rect2i &p_region) const;
 	void _build_draw_list(const RenderDataRD &p_data);
 	bool _get_native_targets(const RenderDataRD &p_data, YutrelPipelineTargets &r_targets) const;
 	bool _prepare_passes();
-	void _record_forward_pass(const YutrelPipelineTargets &p_targets, RID p_uniform_set, const Color &p_clear_color);
-	void _record_output_pass(const YutrelPipelineTargets &p_targets, RID p_pipeline, RID p_uniform_set);
+	bool _bake_dfg_lut();
+	void _record_base_pass(const YutrelPipelineTargets &p_targets, RID p_uniform_set, const Color &p_clear_color);
 
 protected:
-	void setup_render_buffer_data(Ref<RenderSceneBuffersRD> p_render_buffers) override {}
+	void setup_render_buffer_data(Ref<RenderSceneBuffersRD> p_render_buffers) override;
 	void _render_scene(RenderDataRD *p_render_data, const Color &p_default_color) override;
 	void _render_material(const Transform3D &p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, const PagedArray<RenderGeometryInstance *> &p_instances, RID p_framebuffer, const Rect2i &p_region, float p_exposure_normalization) override {}
 	void _render_uv2(const PagedArray<RenderGeometryInstance *> &p_instances, RID p_framebuffer, const Rect2i &p_region) override {}

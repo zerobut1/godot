@@ -30,6 +30,8 @@
 
 #include "editor_gizmo_pass.h"
 
+#include "yutrel_material.h"
+
 #ifdef TOOLS_ENABLED
 
 #include "core/string/print_string.h"
@@ -48,79 +50,6 @@ using MaterialStorage = RendererRD::MaterialStorage;
 using MeshStorage = RendererRD::MeshStorage;
 using TextureStorage = RendererRD::TextureStorage;
 
-enum GizmoFlags : uint32_t {
-	VERTEX_COLOR = 1 << 0,
-	SRGB_VERTEX_COLOR = 1 << 1,
-	BILLBOARD = 1 << 2,
-	FIXED_SIZE = 1 << 3,
-	GRID = 1 << 4,
-	AXIS_RING = 1 << 5,
-	VIEW_RING = 1 << 6,
-	ORIGIN_AXIS = 1 << 7,
-	POINT_SPRITE = 1 << 8,
-};
-
-// MaterialStorage exposes parameter values but keeps each material's shader and
-// priority private. These adapters capture the editor metadata through its
-// normal spatial material hooks. All actual rendering goes through Slang.
-struct GizmoShaderData : MaterialStorage::ShaderData {
-	uint32_t flags = 0;
-	bool on_top = false;
-	bool alpha_scissor = false;
-	bool supported = false;
-
-	void set_code(const String &p_code) override {
-		flags = 0;
-		on_top = p_code.contains("depth_test_disabled");
-		alpha_scissor = p_code.contains("ALPHA_SCISSOR_THRESHOLD =");
-		supported = true;
-		// Shader resources send preprocessed source with comments stripped.
-		if (p_code.contains("camera_world_pos_on_plane") && p_code.contains("grid_size")) {
-			flags = GRID | VERTEX_COLOR | SRGB_VERTEX_COLOR;
-		} else if (p_code.contains("screen_point_final") && p_code.contains("clip_final")) {
-			flags = ORIGIN_AXIS;
-		} else if (on_top && p_code.contains("orientation <= 0.005") && p_code.contains("VERTEX += NORMAL")) {
-			flags = AXIS_RING;
-		} else if (on_top && p_code.contains("camera_dir_local") && p_code.contains("rotation_matrix")) {
-			flags = VIEW_RING;
-		} else if (p_code.contains("Shader automatically converted from") && (p_code.contains("StandardMaterial3D.") || p_code.contains("ORMMaterial3D."))) {
-			if (p_code.contains("albedo_tex *= COLOR")) {
-				flags |= VERTEX_COLOR;
-			}
-			if (p_code.contains("Vertex Color is sRGB: Enabled")) {
-				flags |= SRGB_VERTEX_COLOR;
-			}
-			if (p_code.contains("Billboard Mode: Enabled") || p_code.contains("Billboard Mode: Y-Billboard")) {
-				flags |= BILLBOARD;
-			}
-			if (p_code.contains("Fixed Size: Enabled")) {
-				flags |= FIXED_SIZE;
-			}
-			if (p_code.contains("POINT_SIZE = point_size")) {
-				flags |= POINT_SPRITE;
-			}
-		} else {
-			supported = false;
-		}
-	}
-
-	bool is_animated() const override { return false; }
-	bool casts_shadows() const override { return true; }
-	RenderingServerTypes::ShaderNativeSourceCode get_native_source_code() const override { return {}; }
-	Pair<ShaderRD *, RID> get_native_shader_and_version() const override { return {}; }
-};
-
-struct GizmoMaterialData : MaterialStorage::MaterialData {
-	const GizmoShaderData *shader;
-	int32_t priority = 0;
-
-	explicit GizmoMaterialData(MaterialStorage::ShaderData *p_shader) :
-			shader(static_cast<GizmoShaderData *>(p_shader)) {}
-	void set_render_priority(int p_priority) override { priority = p_priority; }
-	void set_next_pass(RID p_pass) override {}
-	bool update_parameters(const HashMap<StringName, Variant> &p_parameters, bool p_uniform_dirty, bool p_textures_dirty) override { return false; }
-};
-
 void store_color(const Color &p_color, float (&r_data)[4]) {
 	const Color linear = p_color.srgb_to_linear();
 	for (int i = 0; i < 4; i++) {
@@ -130,20 +59,7 @@ void store_color(const Color &p_color, float (&r_data)[4]) {
 
 } // namespace
 
-EditorGizmoPass::EditorGizmoPass() {
-	auto *materials = MaterialStorage::get_singleton();
-	materials->shader_set_data_request_function(MaterialStorage::SHADER_TYPE_3D, []() -> MaterialStorage::ShaderData * {
-		return memnew(GizmoShaderData);
-	});
-	materials->material_set_data_request_function(MaterialStorage::SHADER_TYPE_3D, [](MaterialStorage::ShaderData *p_shader) -> MaterialStorage::MaterialData * {
-		return memnew(GizmoMaterialData(p_shader));
-	});
-}
-
 EditorGizmoPass::~EditorGizmoPass() {
-	auto *materials = MaterialStorage::get_singleton();
-	materials->shader_set_data_request_function(MaterialStorage::SHADER_TYPE_3D, nullptr);
-	materials->material_set_data_request_function(MaterialStorage::SHADER_TYPE_3D, nullptr);
 	RD *rd = RD::get_singleton();
 	if (white_texture.is_valid()) {
 		rd->free_rid(white_texture);
@@ -178,7 +94,6 @@ void EditorGizmoPass::_add_mesh(const RenderGeometryInstanceBase &p_instance, RI
 	auto *meshes = MeshStorage::get_singleton();
 	auto *materials = MaterialStorage::get_singleton();
 	auto *textures = TextureStorage::get_singleton();
-	const auto &overrides = *p_instance.data;
 
 	const int surface_count = meshes->mesh_get_surface_count(p_mesh);
 	for (int i = 0; i < surface_count; i++) {
@@ -188,19 +103,13 @@ void EditorGizmoPass::_add_mesh(const RenderGeometryInstanceBase &p_instance, RI
 			continue;
 		}
 
-		RID material = overrides.material_override;
-		if (material.is_null() && i < overrides.surface_materials.size()) {
-			material = overrides.surface_materials[i];
-		}
-		if (material.is_null()) {
-			material = meshes->mesh_surface_get_material(p_mesh, i);
-		}
-		const auto *material_data = static_cast<const GizmoMaterialData *>(materials->material_get_data(material, MaterialStorage::SHADER_TYPE_3D));
-		if (!material_data || !material_data->shader->supported) {
+		const RID material = YutrelMaterialBridge::get_surface_material(p_instance, p_mesh, i);
+		int32_t priority = 0;
+		const auto *style = YutrelMaterialBridge::get_gizmo_style(material, priority);
+		if (!style) {
 			continue;
 		}
 
-		const GizmoShaderData &style = *material_data->shader;
 		const Variant albedo_param = materials->material_get_param(material, SNAME("albedo"));
 		const Color albedo = albedo_param.get_type() == Variant::COLOR ? Color(albedo_param) : Color(1, 1, 1);
 		if (albedo.a <= 0 || p_modulation.a <= 0) {
@@ -209,10 +118,10 @@ void EditorGizmoPass::_add_mesh(const RenderGeometryInstanceBase &p_instance, RI
 
 		DrawItem item;
 		item.surface = surface;
-		item.on_top = style.on_top;
-		item.priority = material_data->priority;
+		item.on_top = style->on_top;
+		item.priority = priority;
 		item.depth = p_camera.basis.get_column(2).dot(p_camera.origin - p_transform.origin);
-		item.data.flags = style.flags;
+		item.data.flags = style->flags;
 		item.data.instance.set_transform(p_transform, p_transform.basis);
 		if (format & RSE::ARRAY_FLAG_COMPRESS_ATTRIBUTES) {
 			item.data.instance.set_compressed_aabb(meshes->mesh_surface_get_aabb(surface));
@@ -221,7 +130,7 @@ void EditorGizmoPass::_add_mesh(const RenderGeometryInstanceBase &p_instance, RI
 			item.data.uv_scale[1] = uv_scale.y;
 		}
 		if (!(format & RSE::ARRAY_FORMAT_COLOR)) {
-			item.data.flags &= ~(VERTEX_COLOR | SRGB_VERTEX_COLOR);
+			item.data.flags &= ~(YutrelMaterialBridge::VERTEX_COLOR | YutrelMaterialBridge::SRGB_VERTEX_COLOR);
 		}
 
 		switch (meshes->mesh_surface_get_primitive(surface)) {
@@ -236,7 +145,7 @@ void EditorGizmoPass::_add_mesh(const RenderGeometryInstanceBase &p_instance, RI
 				break;
 			case RSE::PRIMITIVE_POINTS:
 				item.primitive = POINTS;
-				if ((style.flags & POINT_SPRITE) && !(format & RSE::ARRAY_FORMAT_INDEX)) {
+				if ((style->flags & YutrelMaterialBridge::POINT_SPRITE) && !(format & RSE::ARRAY_FORMAT_INDEX)) {
 					item.primitive = TRIANGLES;
 					item.point_instances = meshes->mesh_surface_get_vertex_count(surface);
 					item.data.point_size = MAX(float(materials->material_get_param(material, SNAME("point_size"))), 1.0f);
@@ -246,12 +155,12 @@ void EditorGizmoPass::_add_mesh(const RenderGeometryInstanceBase &p_instance, RI
 				continue;
 		}
 		if (item.point_instances == 0) {
-			item.data.flags &= ~POINT_SPRITE;
+			item.data.flags &= ~YutrelMaterialBridge::POINT_SPRITE;
 		}
-		if (style.flags & GRID) {
+		if (style->flags & YutrelMaterialBridge::GRID) {
 			item.data.grid_size = MAX(float(materials->material_get_param(material, SNAME("grid_size"))), 0.001f);
 		}
-		if (style.alpha_scissor) {
+		if (style->alpha_scissor) {
 			const Variant threshold = materials->material_get_param(material, SNAME("alpha_scissor_threshold"));
 			item.data.alpha_scissor = threshold.is_num() ? float(threshold) : 0.5f;
 		}

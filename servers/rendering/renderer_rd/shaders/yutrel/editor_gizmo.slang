@@ -25,8 +25,8 @@ struct GizmoData
 	float2 padding;
 };
 
-static const uint VERTEX_COLOR = 1 << 0;
-static const uint SRGB_VERTEX_COLOR = 1 << 1;
+static const uint GIZMO_VERTEX_COLOR = 1 << 0;
+static const uint GIZMO_SRGB_VERTEX_COLOR = 1 << 1;
 static const uint BILLBOARD = 1 << 2;
 static const uint FIXED_SIZE = 1 << 3;
 static const uint GRID = 1 << 4;
@@ -120,8 +120,8 @@ VertexOutput vertex_main(VertexInput input, out float point_size : SV_PointSize)
 	{
 		output.uv = (output.uv - 0.5) * gizmo.uv_scale;
 	}
-	float4 vertex_color = (flags & VERTEX_COLOR) != 0 ? input.color : float4(1.0);
-	if ((flags & SRGB_VERTEX_COLOR) != 0)
+	float4 vertex_color = (flags & GIZMO_VERTEX_COLOR) != 0 ? input.color : float4(1.0);
+	if ((flags & GIZMO_SRGB_VERTEX_COLOR) != 0)
 	{
 		vertex_color.rgb = srgb_to_linear(vertex_color.rgb);
 	}

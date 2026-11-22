@@ -90,6 +90,7 @@
 #include "editor/settings/editor_settings.h"
 #include "editor/translations/editor_translation_preview_button.h"
 #include "editor/translations/editor_translation_preview_menu.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_viewport_settings.h"
 #include "scene/3d/audio_stream_player_3d.h"
 #include "scene/3d/camera_3d.h"
 #include "scene/3d/decal.h"
@@ -6705,6 +6706,24 @@ void Node3DEditorViewport::_set_lock_view_rotation(bool p_lock_rotation) {
 	}
 }
 
+void Node3DEditorViewport::_yutrel_menu_option(int p_id) {
+	using namespace RendererSceneRenderImplementation;
+	const RID target = RS::get_singleton()->viewport_get_render_target(viewport->get_viewport_rid());
+	if (target.is_null()) {
+		return;
+	}
+	if (yutrel_settings_target.is_valid() && yutrel_settings_target != target) {
+		YutrelViewportSettings::erase(yutrel_settings_target);
+	}
+	yutrel_settings_target = target;
+	YutrelViewportSettings::set(target, { DebugViewMode(p_id) });
+
+	PopupMenu *popup = yutrel_menu->get_popup();
+	for (int i = 0; i < popup->get_item_count(); ++i) {
+		popup->set_item_checked(i, popup->get_item_id(i) == p_id);
+	}
+}
+
 void Node3DEditorViewport::_add_advanced_debug_draw_mode_item(PopupMenu *p_popup, const String &p_name, int p_value, SupportedRenderingMethods p_rendering_methods, const String &p_tooltip) {
 	display_submenu->add_radio_check_item(p_name, p_value);
 	Array item_data = { p_rendering_methods, p_tooltip };
@@ -6788,6 +6807,26 @@ Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p
 	view_display_menu->set_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
 	view_display_menu->get_popup()->set_auto_translate_mode(AUTO_TRANSLATE_MODE_ALWAYS);
 	hbox->add_child(view_display_menu);
+
+	if (OS::get_singleton()->get_current_rendering_method() == "yutrel") {
+		using namespace RendererSceneRenderImplementation;
+		yutrel_menu = memnew(MenuButton);
+		yutrel_menu->set_text("Yutrel");
+		yutrel_menu->set_flat(false);
+		hbox->add_child(yutrel_menu);
+		PopupMenu *popup = yutrel_menu->get_popup();
+		popup->add_radio_check_item(TTRC("Final"), int(DebugViewMode::FINAL));
+		popup->add_radio_check_item(TTRC("Albedo"), int(DebugViewMode::ALBEDO));
+		popup->add_radio_check_item(TTRC("World Normal"), int(DebugViewMode::WORLD_NORMAL));
+		popup->add_radio_check_item(TTRC("Roughness"), int(DebugViewMode::ROUGHNESS));
+		popup->add_radio_check_item(TTRC("Metallic"), int(DebugViewMode::METALLIC));
+		popup->add_radio_check_item(TTRC("Material AO"), int(DebugViewMode::MATERIAL_AO));
+		popup->add_radio_check_item(TTRC("Lighting"), int(DebugViewMode::LIGHTING));
+		popup->set_item_tooltip(-1, TTR("Shows directional and ambient light contributions."));
+		popup->add_radio_check_item(TTRC("Depth"), int(DebugViewMode::DEPTH));
+		popup->set_item_checked(popup->get_item_index(int(DebugViewMode::FINAL)), true);
+		popup->connect(SceneStringName(id_pressed), callable_mp(this, &Node3DEditorViewport::_yutrel_menu_option));
+	}
 
 	view_display_menu->get_popup()->set_hide_on_checkable_item_selection(false);
 
@@ -7196,6 +7235,9 @@ Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p
 }
 
 Node3DEditorViewport::~Node3DEditorViewport() {
+	if (yutrel_settings_target.is_valid()) {
+		RendererSceneRenderImplementation::YutrelViewportSettings::erase(yutrel_settings_target);
+	}
 	memdelete(ruler);
 }
 
@@ -10279,6 +10321,15 @@ void Node3DEditor::_update_preview_environment() {
 
 	sun_angle_altitude->set_value_no_signal(-Math::rad_to_deg(sun_rotation.x));
 	sun_angle_azimuth->set_value_no_signal(180.0 - Math::rad_to_deg(sun_rotation.y));
+
+	if (OS::get_singleton()->get_current_rendering_method() == "yutrel") {
+		preview_env_dangling = true;
+		environ_button->set_disabled(true);
+		environ_vb->hide();
+		environ_state->set_text(TTRC("Scene tone mapping uses YutrelEnvironment."));
+		environ_state->show();
+		return;
+	}
 
 	bool disable_env = world_env_count > 0 || !environ_button->is_pressed();
 

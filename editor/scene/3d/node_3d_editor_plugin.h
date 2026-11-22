@@ -236,6 +236,9 @@ private:
 	SubViewportContainer *subviewport_container = nullptr;
 
 	MenuButton *view_display_menu = nullptr;
+	MenuButton *yutrel_menu = nullptr;
+	RID yutrel_settings_target;
+	void _yutrel_menu_option(int p_id);
 	PopupMenu *display_submenu = nullptr;
 
 	Control *surface = nullptr;
