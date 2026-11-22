@@ -36,6 +36,7 @@
 #include "passes/directional_light_pass.h"
 #include "passes/ibl_pass.h"
 #include "passes/output_pass.h"
+#include "passes/path_tracer_pass.h"
 #include "passes/shadow_mask_pass.h"
 #include "passes/skybox_pass.h"
 #include "passes/transparent_pass.h"
@@ -83,6 +84,9 @@ class RenderYutrel : public RendererSceneRenderRD {
 	TransparentPass transparent_pass;
 	OutputPass output_pass;
 	DebugViewPass debug_view_pass;
+	YutrelRayTracingScene rt_scene;
+	PathTracerPass path_tracer_pass;
+	bool runtime_path_tracing = false;
 #ifdef TOOLS_ENABLED
 	EditorGizmoPass editor_gizmos;
 #endif

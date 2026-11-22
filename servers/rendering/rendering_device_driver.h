@@ -930,6 +930,7 @@ public:
 		DeviceFamily device_family = DEVICE_UNKNOWN;
 		uint32_t version_major = 1;
 		uint32_t version_minor = 0;
+		bool sampled_image_array_non_uniform_indexing = false;
 	};
 
 	virtual void set_object_name(ObjectType p_type, ID p_driver_id, const String &p_name) = 0;

@@ -43,7 +43,7 @@ class OutputPass {
 
 public:
 	bool prepare();
-	void render(const YutrelPipelineTargets &p_targets, RID p_environment);
+	void render(const YutrelPipelineTargets &p_targets, RID p_environment, RID p_color_override = RID());
 };
 
 } // namespace RendererSceneRenderImplementation

@@ -99,6 +99,7 @@ struct YutrelPipelineTargets {
 	RID render_target;
 	RID scene_color;
 	RID scene_depth;
+	RID path_tracer_accum;
 	RID gbuffer_a;
 	RID gbuffer_b;
 	RID gbuffer_c;
@@ -132,8 +133,8 @@ public:
 
 		const uint64_t bytes = uint64_t(p_data.size()) * sizeof(T);
 		RD *rd = RD::get_singleton();
-		// Vulkan guarantees at least this range for a storage buffer descriptor.
-		constexpr uint64_t limit = 128 * 1024 * 1024;
+		// Stay within 32-bit RD buffer sizes while accommodating large RT vertex arenas (e.g., Sponza + addons).
+		constexpr uint64_t limit = uint64_t(1024) * 1024 * 1024;
 		ERR_FAIL_COND_V(bytes > limit, false);
 
 		if (bytes > capacity) {

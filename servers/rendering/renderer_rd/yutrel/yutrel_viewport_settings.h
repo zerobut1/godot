@@ -48,15 +48,16 @@ enum class DebugViewMode : uint32_t {
 	DEPTH,
 	SHADOW_MASK,
 	CSM_CASCADES,
+	PATH_TRACER,
 };
 
 struct YutrelViewportSettings {
 	DebugViewMode debug_view = DebugViewMode::FINAL;
 
-	static YutrelViewportSettings get(RID p_render_target) {
+	static YutrelViewportSettings get(RID p_render_target, DebugViewMode p_default = DebugViewMode::FINAL) {
 		MutexLock lock(mutex);
 		const YutrelViewportSettings *settings = settings_by_target.getptr(p_render_target);
-		return settings ? *settings : YutrelViewportSettings();
+		return settings ? *settings : YutrelViewportSettings{ p_default };
 	}
 
 	static void set(RID p_render_target, const YutrelViewportSettings &p_settings) {

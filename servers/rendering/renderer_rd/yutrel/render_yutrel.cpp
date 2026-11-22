@@ -33,15 +33,13 @@
 #include "yutrel_render_data.h"
 #include "yutrel_viewport_settings.h"
 
+#include "core/config/engine.h"
+#include "core/config/project_settings.h"
 #include "core/string/print_string.h"
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/light_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/utilities.h"
-
-#ifdef TOOLS_ENABLED
-#include "core/config/engine.h"
-#endif
 
 namespace RendererSceneRenderImplementation {
 
@@ -55,6 +53,9 @@ public:
 	RID gbuffer_b;
 	RID gbuffer_c;
 	RID shadow_mask;
+	RID path_tracer_accum;
+	uint64_t pt_state_hash = 0;
+	uint32_t pt_sample_count = 0;
 
 	void configure(RenderSceneBuffersRD *p_buffers) override {
 		if (p_buffers->get_view_count() != 1 || p_buffers->get_internal_size().x <= 0 || p_buffers->get_internal_size().y <= 0) {
@@ -73,6 +74,9 @@ public:
 		gbuffer_b = RID();
 		gbuffer_c = RID();
 		shadow_mask = RID();
+		path_tracer_accum = RID();
+		pt_sample_count = 0;
+		pt_state_hash = 0;
 	}
 };
 
@@ -205,15 +209,18 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	ERR_FAIL_COND(p_render_data->render_buffers.is_null());
 	ERR_FAIL_NULL(p_render_data->scene_data);
 	YutrelPipelineTargets targets;
-	if (!_get_native_targets(*p_render_data, targets) || !_prepare_passes()) {
+	if (!_get_native_targets(*p_render_data, targets)) {
 		return;
 	}
 
 	RD *rd = RD::get_singleton();
-	const YutrelViewportSettings settings = YutrelViewportSettings::get(targets.render_target);
+	YutrelViewportSettings settings = YutrelViewportSettings::get(targets.render_target, runtime_path_tracing ? DebugViewMode::PATH_TRACER : DebugViewMode::FINAL);
+	if (settings.debug_view == DebugViewMode::PATH_TRACER && !PathTracerPass::is_supported()) {
+		WARN_PRINT_ONCE("Yutrel Path Tracer requires ray queries and non-uniform indexing of 513 sampled images per stage. Falling back to Final.");
+		settings.debug_view = DebugViewMode::FINAL;
+	}
 
 	const YutrelFrameData frame = _build_frame_data(*p_render_data, targets.region);
-	_collect_geometry(*p_render_data);
 	if (frame_buffer.is_null()) {
 		frame_buffer = rd->uniform_buffer_create(sizeof(frame));
 		ERR_FAIL_COND(frame_buffer.is_null());
@@ -223,6 +230,36 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 
 	const YutrelEnvironmentSettings environment = YutrelEnvironmentSettings::get(p_render_data->environment);
 	LocalVector<DirectionalLightItem> lights = DirectionalLightPass::collect(*p_render_data);
+	if (settings.debug_view == DebugViewMode::PATH_TRACER) {
+		ERR_FAIL_COND(!output_pass.prepare() || !ibl_pass.prepare_environment(environment));
+#ifdef TOOLS_ENABLED
+		if (Engine::get_singleton()->is_editor_hint()) {
+			ERR_FAIL_COND(!base_pass.prepare() || !transparent_pass.prepare());
+			_collect_geometry(*p_render_data);
+			ERR_FAIL_COND(!base_pass.render(targets, frame_buffer, p_default_color.srgb_to_linear()));
+		}
+#endif
+		const Ref<YutrelRenderBufferData> custom = p_render_data->render_buffers->get_custom_data(SNAME("Yutrel"));
+		if (custom->path_tracer_accum.is_null()) {
+			custom->path_tracer_accum = p_render_data->render_buffers->create_texture(SNAME("Yutrel"), SNAME("PathTracerAccum"),
+					RD::DATA_FORMAT_R32G32B32A32_SFLOAT, RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT);
+		}
+		targets.path_tracer_accum = custom->path_tracer_accum;
+		ERR_FAIL_COND(targets.path_tracer_accum.is_null() || !rt_scene.update(*p_render_data, material_bridge));
+		ERR_FAIL_COND(!path_tracer_pass.render(targets, frame_buffer, frame, lights, environment, ibl_pass, rt_scene, custom->pt_state_hash, custom->pt_sample_count));
+		output_pass.render(targets, p_render_data->environment, targets.path_tracer_accum);
+#ifdef TOOLS_ENABLED
+		if (Engine::get_singleton()->is_editor_hint()) {
+			editor_gizmos.render(targets, *p_render_data->scene_data, frame);
+		}
+#endif
+		RendererRD::TextureStorage::get_singleton()->render_target_disable_clear_request(targets.render_target);
+		return;
+	}
+	if (!_prepare_passes()) {
+		return;
+	}
+	_collect_geometry(*p_render_data);
 	ERR_FAIL_COND(!csm_shadow_pass.render(*p_render_data, lights, environment.shadow_resolution, material_bridge));
 	if (!base_pass.render(targets, frame_buffer, p_default_color.srgb_to_linear())) {
 		return;
@@ -300,6 +337,8 @@ void RenderYutrel::geometry_instance_free(RenderGeometryInstance *p_geometry_ins
 }
 
 RenderYutrel::RenderYutrel() {
+	const bool enabled = GLOBAL_DEF("rendering/yutrel/path_tracer/enabled", false);
+	runtime_path_tracing = enabled && !Engine::get_singleton()->is_editor_hint();
 	sky.set_texture_format(_render_buffers_get_preferred_color_format());
 	directional_light_pass.initialize_dfg_lut();
 	print_verbose("Yutrel: Slang deferred renderer created.");

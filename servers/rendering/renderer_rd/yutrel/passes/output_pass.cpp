@@ -56,8 +56,8 @@ bool OutputPass::prepare() {
 	return output_shader.get_shader().is_valid();
 }
 
-void OutputPass::render(const YutrelPipelineTargets &p_targets, RID p_environment) {
-	const RID output_set = UniformSetCacheRD::get_singleton()->get_cache(output_shader.get_shader(), 0, RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, p_targets.scene_color));
+void OutputPass::render(const YutrelPipelineTargets &p_targets, RID p_environment, RID p_color_override) {
+	const RID output_set = UniformSetCacheRD::get_singleton()->get_cache(output_shader.get_shader(), 0, RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, p_color_override.is_valid() ? p_color_override : p_targets.scene_color));
 	const YutrelEnvironmentSettings environment = YutrelEnvironmentSettings::get(p_environment);
 	const OutputPushConstant output = { p_targets.output_linear, uint32_t(environment.tone_mapping), environment.exposure };
 	draw_fullscreen("Yutrel OutputPass", Color(0.7, 0.9, 0.2), p_targets.region, p_targets.output_framebuffer, output_pipeline, output_set, &output, sizeof(output));
