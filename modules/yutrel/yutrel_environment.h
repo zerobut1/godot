@@ -33,16 +33,37 @@
 #include "scene/main/node.h"
 #include "scene/resources/3d/world_3d.h"
 #include "scene/resources/environment.h"
+#include "scene/resources/texture.h"
 
 class YutrelEnvironment : public Node {
 	GDCLASS(YutrelEnvironment, Node);
 
 public:
+	enum SkyMode {
+		SKY_MODE_CONSTANT_COLOR,
+		SKY_MODE_HDRI,
+	};
+
 	enum ToneMapping {
 		TONE_MAPPING_AGX,
 		TONE_MAPPING_ACES,
 		TONE_MAPPING_NONE,
 	};
+
+	void set_sky_mode(SkyMode p_mode);
+	SkyMode get_sky_mode() const { return sky_mode; }
+
+	void set_sky_color(const Color &p_color);
+	Color get_sky_color() const { return sky_color; }
+
+	void set_sky_texture(const Ref<Texture2D> &p_texture);
+	Ref<Texture2D> get_sky_texture() const { return sky_texture; }
+
+	void set_sky_intensity(float p_intensity);
+	float get_sky_intensity() const { return sky_intensity; }
+
+	void set_sky_rotation(float p_degrees);
+	float get_sky_rotation() const { return sky_rotation; }
 
 	void set_tone_mapping(ToneMapping p_tone_mapping);
 	ToneMapping get_tone_mapping() const { return tone_mapping; }
@@ -57,9 +78,15 @@ protected:
 	void _notification(int p_what);
 
 private:
+	SkyMode sky_mode = SKY_MODE_CONSTANT_COLOR;
+	Color sky_color = Color(0.22f, 0.25f, 0.30f);
+	Ref<Texture2D> sky_texture;
+	float sky_intensity = 1.0f;
+	float sky_rotation = 0.0f;
 	ToneMapping tone_mapping = TONE_MAPPING_AGX;
 	float exposure = 1.0f;
 	Ref<Environment> internal_environment;
+	Ref<Environment> previous_environment;
 	Ref<World3D> world;
 
 	void _publish_settings();
@@ -67,3 +94,4 @@ private:
 };
 
 VARIANT_ENUM_CAST(YutrelEnvironment::ToneMapping);
+VARIANT_ENUM_CAST(YutrelEnvironment::SkyMode);

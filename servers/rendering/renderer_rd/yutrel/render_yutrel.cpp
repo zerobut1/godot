@@ -180,6 +180,8 @@ bool RenderYutrel::_prepare_passes() {
 	// Poll every shader even when another pass is unavailable.
 	const bool base_ready = base_pass.prepare();
 	const bool lighting_ready = directional_light_pass.prepare();
+	ibl_pass.prepare();
+	skybox_pass.prepare();
 	const bool output_ready = output_pass.prepare();
 	const bool debug_ready = debug_view_pass.prepare();
 	const bool dfg_ready = directional_light_pass.prepare_dfg_lut();
@@ -203,14 +205,12 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 
 	const YutrelFrameData frame = _build_frame_data(*p_render_data, targets.region);
 	_collect_geometry(*p_render_data);
-	if (base_pass.has_draws()) {
-		if (frame_buffer.is_null()) {
-			frame_buffer = rd->uniform_buffer_create(sizeof(frame));
-			ERR_FAIL_COND(frame_buffer.is_null());
-			rd->set_resource_name(frame_buffer, "Yutrel Frame UBO");
-		}
-		ERR_FAIL_COND(rd->buffer_update(frame_buffer, 0, sizeof(frame), &frame) != OK);
+	if (frame_buffer.is_null()) {
+		frame_buffer = rd->uniform_buffer_create(sizeof(frame));
+		ERR_FAIL_COND(frame_buffer.is_null());
+		rd->set_resource_name(frame_buffer, "Yutrel Frame UBO");
 	}
+	ERR_FAIL_COND(rd->buffer_update(frame_buffer, 0, sizeof(frame), &frame) != OK);
 
 	if (!base_pass.render(targets, frame_buffer, p_default_color.srgb_to_linear())) {
 		return;
@@ -218,8 +218,23 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 
 	const bool final = settings.debug_view == DebugViewMode::FINAL;
 	const bool lighting_only = settings.debug_view == DebugViewMode::LIGHTING;
-	if ((final || lighting_only) && base_pass.has_draws()) {
+	const bool draw_lighting = (final || lighting_only) && base_pass.has_draws();
+	const bool draw_sky = final && !p_render_data->transparent_bg;
+	const YutrelEnvironmentSettings environment = YutrelEnvironmentSettings::get(p_render_data->environment);
+	const YutrelSkyParams sky_params = {
+		environment.sky_intensity,
+		Math::sin(environment.sky_rotation_radians),
+		Math::cos(environment.sky_rotation_radians),
+	};
+	const bool ibl_ready = (draw_lighting || draw_sky) && ibl_pass.prepare_environment(environment);
+	if (draw_lighting) {
 		directional_light_pass.render(targets, frame_buffer, lighting_only);
+		if (ibl_ready) {
+			ibl_pass.render(targets, frame_buffer, directional_light_pass.get_dfg_lut(), sky_params);
+		}
+	}
+	if (draw_sky && ibl_ready) {
+		skybox_pass.render(targets, frame_buffer, ibl_pass.get_source_cubemap(), ibl_pass.get_cube_sampler(), sky_params);
 	}
 
 	if (final) {

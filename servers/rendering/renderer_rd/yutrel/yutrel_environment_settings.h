@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/math/color.h"
 #include "core/os/mutex.h"
 #include "core/templates/hash_map.h"
 #include "core/templates/rid.h"
@@ -43,9 +44,28 @@ enum class ToneMappingMode : uint32_t {
 	NONE,
 };
 
+enum class SkyMode : uint32_t {
+	CONSTANT_COLOR,
+	HDRI,
+};
+
+// Shared push constant prefix for ibl.slang and skybox.slang.
+struct YutrelSkyParams {
+	float intensity;
+	float sin_rot;
+	float cos_rot;
+};
+
+static_assert(sizeof(YutrelSkyParams) == 12);
+
 struct YutrelEnvironmentSettings {
 	ToneMappingMode tone_mapping = ToneMappingMode::AGX;
 	float exposure = 1.0f;
+	SkyMode sky_mode = SkyMode::CONSTANT_COLOR;
+	Color linear_sky_color = Color(0.08f, 0.08f, 0.08f);
+	RID sky_texture_rid;
+	float sky_intensity = 1.0f;
+	float sky_rotation_radians = 0.0f;
 
 	static YutrelEnvironmentSettings get(RID p_environment) {
 		if (p_environment.is_null()) {
@@ -54,6 +74,11 @@ struct YutrelEnvironmentSettings {
 		MutexLock lock(mutex);
 		const YutrelEnvironmentSettings *settings = settings_by_environment.getptr(p_environment);
 		return settings ? *settings : YutrelEnvironmentSettings();
+	}
+
+	static bool has(RID p_environment) {
+		MutexLock lock(mutex);
+		return settings_by_environment.has(p_environment);
 	}
 
 	static void set(RID p_environment, const YutrelEnvironmentSettings &p_settings) {

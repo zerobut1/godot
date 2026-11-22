@@ -37,8 +37,7 @@ float4 fragment_main(float4 position : SV_Position) : SV_Target0
 	float3 diffuse = surface.base_color * (1.0 - surface.metallic);
 	float3 compensation = energy_compensation(f0, dfg_lut.SampleLevel(dfg_sampler, float2(NoV, perceptual_roughness), 0.0).g);
 
-	float hemisphere = lerp(0.025, 0.075, saturate(N.y * 0.5 + 0.5));
-	float3 lighting = (diffuse + f0 * 0.25) * (hemisphere * surface.material_ao);
+	float3 lighting = float3(0.0);
 	for (uint i = 0; i < frame.light_count; ++i)
 	{
 		DirectionalLight light = frame.lights[i];
