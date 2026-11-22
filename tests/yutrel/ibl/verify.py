@@ -6,13 +6,13 @@ the embedded-source test temporarily moves the on-disk shaders.
 """
 
 import argparse
-from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -159,24 +159,10 @@ def run_godot(exe, project, label, *, editor=False, hot_reload=False, embedded=F
     return re.findall(r"^IMAGE .+$", text, re.M)
 
 
-@contextmanager
-def embedded_only():
-    backup = WORK / "shader-source-hold"
-    backup.mkdir(exist_ok=True)
-    if any(backup.iterdir()):
-        raise RuntimeError(f"Restore the shader sources from {backup} before rerunning")
-    moved = []
-    try:
-        for original in SHADERS.glob("*.slang"):
-            path = original.rename(backup / original.name)
-            moved.append((path, original))
-        yield
-    finally:
-        for path, original in reversed(moved):
-            path.rename(original)
-
-
 def main():
+    sys.path.insert(0, str(FIXTURE.parent))
+    from validation import embedded_only
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("exe", nargs="?", type=Path,
                         default=ROOT / "bin/godot.windows.editor.dev.x86_64.yutrel.console.exe")
@@ -197,7 +183,7 @@ def main():
         validate_spirv(embedded_source, WORK / "embedded-spirv")
     disk = run_godot(exe, project, "runtime-hot-reload", hot_reload=True)
     run_godot(exe, project, "editor", editor=True)
-    with embedded_only():
+    with embedded_only(SHADERS, WORK):
         embedded = run_godot(exe, project, "runtime-embedded", embedded=True)
         run_godot(exe, project, "editor-embedded", editor=True, embedded=True)
     if len(disk) != 3 or disk != embedded:

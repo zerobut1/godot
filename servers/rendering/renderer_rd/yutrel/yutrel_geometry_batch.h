@@ -35,10 +35,26 @@
 
 namespace RendererSceneRenderImplementation {
 
-// Base and shadow passes share mesh decoding, material overrides and winding.
 class YutrelGeometryBatch {
 protected:
+	enum Pass {
+		BASE,
+		SHADOW,
+		TRANSPARENT,
+	};
+	const Pass pass;
+
+	struct BatchMaterial {
+		int id = -1;
+		bool transparent = false;
+		int32_t priority = 0;
+		YutrelMaterialBridge::BlendMode blend = YutrelMaterialBridge::BLEND_MIX;
+	};
+
 	struct DrawItem {
+		uint32_t instance_id = 0;
+		float distance = 0;
+		BatchMaterial material;
 		void *surface = nullptr;
 		bool mirrored = false;
 		bool double_sided = false;
@@ -48,22 +64,39 @@ protected:
 	};
 
 	YutrelShader shader;
-	PipelineCacheRD pipelines[2][2];
+	PipelineCacheRD pipelines[YutrelMaterialBridge::BLEND_MODE_COUNT][2][2];
 	YutrelStorageBuffer instance_buffer;
 	YutrelStorageBuffer material_buffer;
 	LocalVector<DrawItem> draws;
 	LocalVector<YutrelInstanceData> instances;
 	LocalVector<YutrelMaterialData> materials;
 	LocalVector<RID> material_sets;
-	HashMap<RID, int> material_indices;
+	HashMap<RID, BatchMaterial> material_indices;
 
-	bool prepare_geometry(bool p_shadow);
+	explicit YutrelGeometryBatch(Pass p_pass) : pass(p_pass) {}
 	bool upload_geometry();
-	void resolve_draws(RD::FramebufferFormatID p_format, bool p_shadow);
-	void add_geometry(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_bridge, bool p_shadow);
-	void draw_range(RD::DrawListID p_list, uint32_t p_begin, uint32_t p_end, const float (*p_shadow_vp)[4] = nullptr);
+	void resolve_draws(RD::FramebufferFormatID p_format);
+	BatchMaterial resolve_material(RID p_material, YutrelMaterialBridge &p_bridge, YutrelGeometryBatch *p_transparent);
+	void add_geometry(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_bridge,
+			YutrelGeometryBatch *p_transparent = nullptr, const Vector3 &p_camera_position = {}, const Vector3 &p_camera_forward = {});
+	bool bind_draw(RD::DrawListID p_list, const DrawItem &p_item, RID &r_material_set);
+
+	template <typename T>
+	void draw_range(RD::DrawListID p_list, uint32_t p_begin, uint32_t p_end, T &r_constants) {
+		RD *rd = RD::get_singleton();
+		RID bound_material_set;
+		for (uint32_t i = p_begin; i < p_end; i++) {
+			const DrawItem &item = draws[i];
+			if (bind_draw(p_list, item, bound_material_set)) {
+				r_constants.draw_id = item.instance_id;
+				rd->draw_list_set_push_constant(p_list, &r_constants, sizeof(T));
+				rd->draw_list_draw(p_list, item.index_array.is_valid());
+			}
+		}
+	}
 
 public:
+	bool prepare();
 	void clear();
 	bool has_draws() const { return !draws.is_empty(); }
 };

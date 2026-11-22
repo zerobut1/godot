@@ -38,6 +38,7 @@
 #include "passes/output_pass.h"
 #include "passes/shadow_mask_pass.h"
 #include "passes/skybox_pass.h"
+#include "passes/transparent_pass.h"
 #include "yutrel_material.h"
 
 #include "servers/rendering/renderer_geometry_instance.h"
@@ -79,6 +80,7 @@ class RenderYutrel : public RendererSceneRenderRD {
 	DirectionalLightPass directional_light_pass;
 	IBLPass ibl_pass;
 	SkyboxPass skybox_pass;
+	TransparentPass transparent_pass;
 	OutputPass output_pass;
 	DebugViewPass debug_view_pass;
 #ifdef TOOLS_ENABLED

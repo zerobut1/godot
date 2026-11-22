@@ -101,6 +101,9 @@ public:
 	void prepare();
 	bool prepare_environment(const YutrelEnvironmentSettings &p_environment);
 	RID get_source_cubemap() const { return baked ? source.texture : RID(); }
+	RID get_prefilter_cubemap() const { return filtered.texture; }
+	RID get_sh_buffer() const { return sh_buffer; }
+	static constexpr float get_prefilter_max_mip() { return PREFILTER_MIPS - 1.0f; }
 	RID get_cube_sampler() const { return cube_sampler; }
 
 	void render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_dfg_lut, const YutrelSkyParams &p_sky);

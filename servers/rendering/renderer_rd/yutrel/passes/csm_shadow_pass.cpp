@@ -135,7 +135,7 @@ bool CSMShadowPass::render(const RenderDataRD &p_data, LocalVector<DirectionalLi
 			const auto &casters = p_data.render_shadows[shadow_jobs[i]].instances;
 			const bool mirrored = transform.basis.determinant() < 0;
 			for (uint32_t j = 0; j < casters.size(); j++) {
-				add_geometry(*static_cast<const RenderGeometryInstanceBase *>(casters[j]), mirrored, p_bridge, true);
+				add_geometry(*static_cast<const RenderGeometryInstanceBase *>(casters[j]), mirrored, p_bridge);
 			}
 			draw_ends.push_back(draws.size());
 		}
@@ -156,7 +156,7 @@ bool CSMShadowPass::render(const RenderDataRD &p_data, LocalVector<DirectionalLi
 				RD::Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 1, instance_buffer.get_buffer()),
 				RD::Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 2, material_buffer.get_buffer()));
 		ERR_FAIL_COND_V(set.is_null(), false);
-		resolve_draws(rd->framebuffer_get_format(framebuffers[0]), true);
+		resolve_draws(rd->framebuffer_get_format(framebuffers[0]));
 	}
 
 	rd->draw_command_begin_label("Yutrel CSMShadowPass", Color(0.3, 0.4, 0.7));
@@ -167,7 +167,12 @@ bool CSMShadowPass::render(const RenderDataRD &p_data, LocalVector<DirectionalLi
 			const RD::DrawListID list = rd->draw_list_begin(framebuffers[layer], RD::DRAW_CLEAR_DEPTH, {}, 0.0f);
 			if (begin < draw_ends[layer]) {
 				rd->draw_list_bind_uniform_set(list, set, 0);
-				draw_range(list, begin, draw_ends[layer], item.shadow.view_projection[i]);
+				struct {
+					float vp[4][4];
+					uint32_t draw_id;
+				} draw;
+				memcpy(draw.vp, item.shadow.view_projection[i], sizeof(draw.vp));
+				draw_range(list, begin, draw_ends[layer], draw);
 			}
 			rd->draw_list_end();
 			begin = draw_ends[layer];

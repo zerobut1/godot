@@ -44,7 +44,8 @@ class CSMShadowPass : private YutrelGeometryBatch {
 	bool _ensure_array(uint32_t p_resolution, uint32_t p_layers);
 
 public:
-	bool prepare() { return prepare_geometry(true); }
+	CSMShadowPass() : YutrelGeometryBatch(SHADOW) {}
+	using YutrelGeometryBatch::prepare;
 	bool render(const RenderDataRD &p_data, LocalVector<DirectionalLightItem> &r_lights, uint32_t p_resolution, YutrelMaterialBridge &p_bridge);
 	RID get_depth_array() const { return depth_array; }
 	~CSMShadowPass();

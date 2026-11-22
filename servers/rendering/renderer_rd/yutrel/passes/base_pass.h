@@ -38,9 +38,10 @@ class BasePass : public YutrelGeometryBatch {
 	void _record(const YutrelPipelineTargets &p_targets, RID p_uniform_set, const Color &p_clear_color);
 
 public:
-	bool prepare() { return prepare_geometry(false); }
-	void add(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_material_bridge) {
-		add_geometry(p_instance, p_camera_mirrored, p_material_bridge, false);
+	BasePass() : YutrelGeometryBatch(BASE) {}
+	void add(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_material_bridge,
+			YutrelGeometryBatch &p_transparent, const Vector3 &p_camera_position, const Vector3 &p_camera_forward) {
+		add_geometry(p_instance, p_camera_mirrored, p_material_bridge, &p_transparent, p_camera_position, p_camera_forward);
 	}
 	bool render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const Color &p_clear_color);
 };

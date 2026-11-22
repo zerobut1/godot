@@ -1,6 +1,6 @@
 import common;
 import gbuffer;
-import brdf;
+import pbr;
 
 [[vk::binding(0, 0)]] ConstantBuffer<FrameData> frame;
 [[vk::binding(1, 0)]] Texture2D<float4> gbuffer_a;
@@ -38,25 +38,15 @@ float4 fragment_main(float4 position : SV_Position) : SV_Target0
 	}
 	GBufferData surface = decode_gbuffer(a, gbuffer_b.Load(pixel), gbuffer_c.Load(pixel));
 	float3 world = reconstruct_world_position(position.xy, depth, frame);
-	float3 N = surface.normal_ws;
-	float3 V = frame.camera_forward.w != 0.0 ? frame.camera_forward.xyz : normalize_or(frame.camera_position.xyz - world, N);
-	float NoV = max(saturate(dot(N, V)), MIN_N_DOT_V);
-	float perceptual_roughness = max(surface.roughness, MIN_PERCEPTUAL_ROUGHNESS);
-	float roughness = perceptual_roughness * perceptual_roughness;
-	float3 f0 = standard_f0(surface.base_color, surface.metallic, surface.specular);
-	float3 diffuse = surface.base_color * (1.0 - surface.metallic);
-	float3 compensation = energy_compensation(f0, dfg_lut.SampleLevel(dfg_sampler, float2(NoV, perceptual_roughness), 0.0).g);
+	ShadingData p = prepare_shading(surface, frame, world, dfg_lut, dfg_sampler);
 
 	float3 lighting = float3(0.0);
 	float3 L = light.direction.xyz;
-	float NoL = saturate(dot(N, L));
+	float NoL = saturate(dot(p.N, L));
 	if (NoL > 0.0)
 	{
-		float3 H = normalize_or(V + L, N);
-		float NoH = saturate(dot(N, H));
-		float LoH = saturate(dot(L, H));
 		float visibility = light.has_shadow != 0 ? shadow_mask.Load(pixel) : 1.0;
-		lighting = evaluate_brdf(diffuse, f0, roughness, NoV, NoL, NoH, LoH, compensation) * light.radiance * (NoL * visibility);
+		lighting = direct_brdf(p, L, NoL) * light.radiance * (NoL * visibility);
 	}
 	return float4(clamp(sanitize_finite(lighting), -65504.0, 65504.0), 0.0);
 }

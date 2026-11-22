@@ -43,6 +43,8 @@ using MaterialStorage = RendererRD::MaterialStorage;
 using TextureStorage = RendererRD::TextureStorage;
 
 struct BridgeShaderData : MaterialStorage::ShaderData {
+	using Bridge = YutrelMaterialBridge;
+	Bridge::BlendMode blend_mode = Bridge::BLEND_MIX;
 	bool standard = false;
 	bool orm = false;
 	bool transparent = false;
@@ -63,7 +65,15 @@ struct BridgeShaderData : MaterialStorage::ShaderData {
 		orm = generated && p_code.contains("ORMMaterial3D.");
 		standard = orm || (generated && p_code.contains("StandardMaterial3D."));
 		const bool scissor = p_code.contains("ALPHA_SCISSOR_THRESHOLD =");
-		transparent = !scissor && (p_code.contains("ALPHA *=") || p_code.contains("ALPHA ="));
+		blend_mode = Bridge::BLEND_MIX;
+		if (p_code.contains("blend_add")) {
+			blend_mode = Bridge::BLEND_ADD;
+		} else if (p_code.contains("blend_sub")) {
+			blend_mode = Bridge::BLEND_SUB;
+		} else if (p_code.contains("blend_mul")) {
+			blend_mode = Bridge::BLEND_MUL;
+		}
+		transparent = (!scissor && (p_code.contains("ALPHA *=") || p_code.contains("ALPHA ="))) || blend_mode != Bridge::BLEND_MIX;
 		normal_enabled = p_code.contains("NORMAL_MAP =");
 		ao_enabled = p_code.contains("AO_LIGHT_AFFECT =");
 		emission_enabled = p_code.contains("uniform float emission_energy");
@@ -104,7 +114,6 @@ struct BridgeShaderData : MaterialStorage::ShaderData {
 		}
 
 #ifdef TOOLS_ENABLED
-		using Bridge = YutrelMaterialBridge;
 		gizmo = {};
 		gizmo.on_top = p_code.contains("depth_test_disabled");
 		gizmo.alpha_scissor = scissor;
@@ -248,7 +257,7 @@ bool YutrelMaterialBridge::get_material(RID p_material, Material &r_material) {
 		return true;
 	}
 	const BridgeMaterialData *source = get_bridge_data(p_material);
-	if (!source || !source->shader->standard || source->shader->transparent) {
+	if (!source || !source->shader->standard) {
 		return false;
 	}
 
@@ -256,6 +265,9 @@ bool YutrelMaterialBridge::get_material(RID p_material, Material &r_material) {
 	auto *textures = TextureStorage::get_singleton();
 	const BridgeShaderData &shader = *source->shader;
 	YutrelMaterialData &data = r_material.data;
+	r_material.transparent = shader.transparent;
+	r_material.blend_mode = shader.blend_mode;
+	r_material.render_priority = source->priority;
 	data.flags = shader.flags;
 	const auto param = [&](const StringName &p_name) { return materials->material_get_param(p_material, p_name); };
 	const auto scalar = [&](const StringName &p_name, float p_default) {

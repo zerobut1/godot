@@ -42,6 +42,7 @@ class ShadowMaskPass {
 	RID shadow_buffer;
 
 public:
+	RID get_comparison_sampler() const { return comparison_sampler; }
 	bool prepare();
 	void render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_depth_array, const CSMShadowData &p_shadow, bool p_show_cascades = false);
 	~ShadowMaskPass();

@@ -34,7 +34,7 @@
 
 namespace RendererSceneRenderImplementation {
 
-// float4 rows and packed cascade vectors match shadow_mask.slang.
+// float4 rows and packed cascade vectors match csm.slang.
 struct CSMShadowData {
 	float view_projection[4][4][4] = {};
 	float splits[4] = {};

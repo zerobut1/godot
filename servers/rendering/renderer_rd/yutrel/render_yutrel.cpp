@@ -109,6 +109,7 @@ YutrelFrameData RenderYutrel::_build_frame_data(const RenderDataRD &p_data, cons
 
 void RenderYutrel::_collect_geometry(const RenderDataRD &p_data) {
 	base_pass.clear();
+	transparent_pass.clear();
 #ifdef TOOLS_ENABLED
 	editor_gizmos.clear();
 	const bool editor_view = Engine::get_singleton()->is_editor_hint();
@@ -118,7 +119,9 @@ void RenderYutrel::_collect_geometry(const RenderDataRD &p_data) {
 		return;
 	}
 
-	const bool camera_mirrored = p_data.scene_data->cam_transform.basis.determinant() < 0;
+	const Transform3D &camera = p_data.scene_data->cam_transform;
+	const bool camera_mirrored = camera.basis.determinant() < 0;
+	const Vector3 camera_forward = camera.basis.get_column(2).normalized();
 	for (uint32_t i = 0; i < p_data.instances->size(); i++) {
 		const auto &instance = *static_cast<const RenderGeometryInstanceBase *>((*p_data.instances)[i]);
 #ifdef TOOLS_ENABLED
@@ -127,7 +130,7 @@ void RenderYutrel::_collect_geometry(const RenderDataRD &p_data) {
 			continue;
 		}
 #endif
-		base_pass.add(instance, camera_mirrored, material_bridge);
+		base_pass.add(instance, camera_mirrored, material_bridge, transparent_pass, camera.origin, camera_forward);
 	}
 }
 
@@ -187,10 +190,11 @@ bool RenderYutrel::_prepare_passes() {
 	const bool lighting_ready = directional_light_pass.prepare();
 	ibl_pass.prepare();
 	skybox_pass.prepare();
+	const bool transparent_ready = transparent_pass.prepare();
 	const bool output_ready = output_pass.prepare();
 	const bool debug_ready = debug_view_pass.prepare();
 	const bool dfg_ready = directional_light_pass.prepare_dfg_lut();
-	return caster_ready && mask_ready && base_ready && lighting_ready && output_ready && debug_ready && dfg_ready;
+	return caster_ready && mask_ready && base_ready && lighting_ready && transparent_ready && output_ready && debug_ready && dfg_ready;
 }
 
 void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_default_color) {
@@ -227,13 +231,14 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	const bool final = settings.debug_view == DebugViewMode::FINAL;
 	const bool lighting_only = settings.debug_view == DebugViewMode::LIGHTING;
 	const bool draw_lighting = (final || lighting_only) && base_pass.has_draws();
+	const bool draw_transparent = (final || lighting_only) && transparent_pass.has_draws();
 	const bool draw_sky = final && !p_render_data->transparent_bg;
 	const YutrelSkyParams sky_params = {
 		environment.sky_intensity,
 		Math::sin(environment.sky_rotation_radians),
 		Math::cos(environment.sky_rotation_radians),
 	};
-	const bool ibl_ready = (draw_lighting || draw_sky) && ibl_pass.prepare_environment(environment);
+	const bool ibl_ready = (draw_lighting || draw_sky || draw_transparent) && ibl_pass.prepare_environment(environment);
 	const bool debug_mask = settings.debug_view == DebugViewMode::SHADOW_MASK;
 	const bool debug_cascades = settings.debug_view == DebugViewMode::CSM_CASCADES;
 	bool primary_shadow = false;
@@ -262,6 +267,11 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	}
 	if (draw_sky && ibl_ready) {
 		skybox_pass.render(targets, frame_buffer, ibl_pass.get_source_cubemap(), ibl_pass.get_cube_sampler(), sky_params);
+	}
+
+	if (draw_transparent) {
+		transparent_pass.render(targets, frame_buffer, lights, csm_shadow_pass.get_depth_array(), shadow_mask_pass.get_comparison_sampler(),
+				directional_light_pass.get_dfg_lut(), ibl_pass, ibl_ready, sky_params);
 	}
 
 	if (final) {

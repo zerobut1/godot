@@ -148,6 +148,10 @@ func run() -> void:
 		fill.free()
 	red.show()
 	before_reload = await snapshot()
+	var digest := HashingContext.new()
+	digest.start(HashingContext.HASH_SHA256)
+	digest.update(before_reload.get_data())
+	print("CSM IMAGE ", digest.finish().hex_encode())
 	print("CSM READY FOR RELOAD")
 	var marker := OS.get_environment("YUTREL_CSM_RELOAD_MARKER")
 	while not marker.is_empty() and not FileAccess.file_exists(marker):

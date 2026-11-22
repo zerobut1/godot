@@ -78,6 +78,14 @@ static_assert(offsetof(YutrelMaterialData, flags) == 116);
 
 class YutrelMaterialBridge {
 public:
+	enum BlendMode {
+		BLEND_MIX,
+		BLEND_ADD,
+		BLEND_SUB,
+		BLEND_MUL,
+		BLEND_MODE_COUNT,
+	};
+
 	enum TextureSlot {
 		ALBEDO,
 		NORMAL,
@@ -89,6 +97,9 @@ public:
 	};
 
 	struct Material {
+		bool transparent = false;
+		BlendMode blend_mode = BLEND_MIX;
+		int32_t render_priority = 0;
 		YutrelMaterialData data;
 		RID textures[TEXTURE_COUNT];
 	};
