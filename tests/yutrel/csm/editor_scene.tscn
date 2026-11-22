@@ -1,0 +1,14 @@
+[gd_scene format=3]
+
+[node name="CSMTest" type="Node3D"]
+
+[node name="Key" type="DirectionalLight3D" parent="."]
+shadow_enabled = true
+directional_shadow_max_distance = 28.0
+directional_shadow_split_1 = 0.14
+directional_shadow_split_2 = 0.31
+directional_shadow_split_3 = 0.58
+directional_shadow_blend_splits = true
+
+[node name="Environment" type="YutrelEnvironment" parent="."]
+shadow_resolution = 1024

@@ -120,6 +120,7 @@ public:
 	~YutrelMaterialBridge();
 
 	static RID get_surface_material(const RenderGeometryInstanceBase &p_instance, RID p_mesh, int p_surface_index);
+	RID get_white_texture();
 	bool get_material(RID p_material, Material &r_material);
 	RID get_uniform_set(RID p_shader, const Material &p_material) const;
 

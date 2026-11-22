@@ -227,10 +227,15 @@ const YutrelMaterialBridge::GizmoStyle *YutrelMaterialBridge::get_gizmo_style(RI
 }
 #endif
 
-bool YutrelMaterialBridge::get_material(RID p_material, Material &r_material) {
+RID YutrelMaterialBridge::get_white_texture() {
 	if (white_texture.is_null()) {
 		white_texture = make_fallback({ 255, 255, 255, 255 }, "Yutrel White");
 	}
+	return white_texture;
+}
+
+bool YutrelMaterialBridge::get_material(RID p_material, Material &r_material) {
+	get_white_texture();
 	if (flat_normal_texture.is_null()) {
 		flat_normal_texture = make_fallback({ 128, 128, 255, 255 }, "Yutrel Flat Normal");
 	}

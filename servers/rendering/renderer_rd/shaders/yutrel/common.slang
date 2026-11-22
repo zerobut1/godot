@@ -1,10 +1,4 @@
 // Matrices use float4 rows for an explicit CPU/GPU layout.
-public struct DirectionalLight
-{
-	public float4 direction;
-	public float4 radiance;
-};
-
 public struct FrameData
 {
 	public float4 view_projection[4];
@@ -13,10 +7,6 @@ public struct FrameData
 	public float4 camera_forward;
 	public float2 viewport_origin;
 	public float2 inv_viewport_size;
-	public uint light_count;
-	public float padding0;
-	public float2 padding1;
-	public DirectionalLight lights[4];
 };
 
 public struct InstanceData

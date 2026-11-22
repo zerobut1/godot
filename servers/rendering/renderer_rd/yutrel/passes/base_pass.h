@@ -30,40 +30,18 @@
 
 #pragma once
 
-#include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
-#include "servers/rendering/renderer_rd/yutrel/yutrel_material.h"
-#include "servers/rendering/renderer_rd/yutrel/yutrel_render_data.h"
-#include "servers/rendering/renderer_rd/yutrel/yutrel_shader.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_geometry_batch.h"
 
 namespace RendererSceneRenderImplementation {
 
-class BasePass {
-	struct DrawItem {
-		void *surface = nullptr;
-		bool mirrored = false;
-		bool double_sided = false;
-		RID vertex_array;
-		RID index_array;
-		RID pipeline;
-	};
-
-	YutrelShader base_shader;
-	PipelineCacheRD base_pipelines[2][2];
-	YutrelStorageBuffer instance_buffer;
-	YutrelStorageBuffer material_buffer;
-	LocalVector<DrawItem> draws;
-	LocalVector<YutrelInstanceData> instances;
-	LocalVector<YutrelMaterialData> materials;
-	LocalVector<RID> material_sets;
-	HashMap<RID, int> material_indices;
-
+class BasePass : public YutrelGeometryBatch {
 	void _record(const YutrelPipelineTargets &p_targets, RID p_uniform_set, const Color &p_clear_color);
 
 public:
-	bool prepare();
-	void clear();
-	void add(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_material_bridge);
-	bool has_draws() const { return !draws.is_empty(); }
+	bool prepare() { return prepare_geometry(false); }
+	void add(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_material_bridge) {
+		add_geometry(p_instance, p_camera_mirrored, p_material_bridge, false);
+	}
 	bool render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const Color &p_clear_color);
 };
 

@@ -67,6 +67,7 @@ struct YutrelEnvironmentSettings {
 	RID sky_texture_rid;
 	float sky_intensity = 1.0f;
 	float sky_rotation_radians = 0.0f;
+	int shadow_resolution = 2048;
 
 	static YutrelEnvironmentSettings get(RID p_environment) {
 		if (p_environment.is_null()) {

@@ -46,6 +46,8 @@ enum class DebugViewMode : uint32_t {
 	MATERIAL_AO,
 	LIGHTING,
 	DEPTH,
+	SHADOW_MASK,
+	CSM_CASCADES,
 };
 
 struct YutrelViewportSettings {

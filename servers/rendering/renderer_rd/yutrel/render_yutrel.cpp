@@ -54,6 +54,7 @@ public:
 	RID gbuffer_a;
 	RID gbuffer_b;
 	RID gbuffer_c;
+	RID shadow_mask;
 
 	void configure(RenderSceneBuffersRD *p_buffers) override {
 		if (p_buffers->get_view_count() != 1 || p_buffers->get_internal_size().x <= 0 || p_buffers->get_internal_size().y <= 0) {
@@ -62,6 +63,7 @@ public:
 		constexpr uint32_t usage = RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT;
 		gbuffer_a = p_buffers->create_texture(SNAME("Yutrel"), SNAME("GBuffer_A"), RD::DATA_FORMAT_R8G8B8A8_SRGB, usage);
 		gbuffer_b = p_buffers->create_texture(SNAME("Yutrel"), SNAME("GBuffer_B"), RD::DATA_FORMAT_R16G16B16A16_UNORM, usage);
+		shadow_mask = p_buffers->create_texture(SNAME("Yutrel"), SNAME("ShadowMask"), RD::DATA_FORMAT_R8_UNORM, usage);
 		gbuffer_c = p_buffers->create_texture(SNAME("Yutrel"), SNAME("GBuffer_C"), RD::DATA_FORMAT_R8G8B8A8_UNORM, usage);
 	}
 
@@ -70,6 +72,7 @@ public:
 		gbuffer_a = RID();
 		gbuffer_b = RID();
 		gbuffer_c = RID();
+		shadow_mask = RID();
 	}
 };
 
@@ -101,7 +104,6 @@ YutrelFrameData RenderYutrel::_build_frame_data(const RenderDataRD &p_data, cons
 	frame.inv_viewport_size[0] = 1.0f / p_region.size.x;
 	frame.inv_viewport_size[1] = 1.0f / p_region.size.y;
 
-	DirectionalLightPass::populate_frame_lights(p_data, frame);
 	return frame;
 }
 
@@ -161,11 +163,12 @@ bool RenderYutrel::_get_native_targets(const RenderDataRD &p_data, YutrelPipelin
 	r_targets.gbuffer_a = custom->gbuffer_a;
 	r_targets.gbuffer_b = custom->gbuffer_b;
 	r_targets.gbuffer_c = custom->gbuffer_c;
+	r_targets.shadow_mask = custom->shadow_mask;
 	r_targets.scene_color = buffers->get_internal_texture();
 	r_targets.scene_depth = buffers->get_depth_texture();
 	r_targets.output_color = textures->render_target_get_rd_texture(r_targets.render_target);
 	ERR_FAIL_COND_V(r_targets.scene_color.is_null() || r_targets.scene_depth.is_null() || r_targets.output_color.is_null() ||
-					r_targets.gbuffer_a.is_null() || r_targets.gbuffer_b.is_null() || r_targets.gbuffer_c.is_null(),
+					r_targets.gbuffer_a.is_null() || r_targets.gbuffer_b.is_null() || r_targets.gbuffer_c.is_null() || r_targets.shadow_mask.is_null(),
 			false);
 	ERR_FAIL_COND_V(RD::get_singleton()->texture_get_format(r_targets.scene_color).format != RD::DATA_FORMAT_R16G16B16A16_SFLOAT, false);
 	auto *framebuffers = FramebufferCacheRD::get_singleton();
@@ -178,6 +181,8 @@ bool RenderYutrel::_get_native_targets(const RenderDataRD &p_data, YutrelPipelin
 
 bool RenderYutrel::_prepare_passes() {
 	// Poll every shader even when another pass is unavailable.
+	const bool caster_ready = csm_shadow_pass.prepare();
+	const bool mask_ready = shadow_mask_pass.prepare();
 	const bool base_ready = base_pass.prepare();
 	const bool lighting_ready = directional_light_pass.prepare();
 	ibl_pass.prepare();
@@ -185,7 +190,7 @@ bool RenderYutrel::_prepare_passes() {
 	const bool output_ready = output_pass.prepare();
 	const bool debug_ready = debug_view_pass.prepare();
 	const bool dfg_ready = directional_light_pass.prepare_dfg_lut();
-	return base_ready && lighting_ready && output_ready && debug_ready && dfg_ready;
+	return caster_ready && mask_ready && base_ready && lighting_ready && output_ready && debug_ready && dfg_ready;
 }
 
 void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_default_color) {
@@ -212,6 +217,9 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	}
 	ERR_FAIL_COND(rd->buffer_update(frame_buffer, 0, sizeof(frame), &frame) != OK);
 
+	const YutrelEnvironmentSettings environment = YutrelEnvironmentSettings::get(p_render_data->environment);
+	LocalVector<DirectionalLightItem> lights = DirectionalLightPass::collect(*p_render_data);
+	ERR_FAIL_COND(!csm_shadow_pass.render(*p_render_data, lights, environment.shadow_resolution, material_bridge));
 	if (!base_pass.render(targets, frame_buffer, p_default_color.srgb_to_linear())) {
 		return;
 	}
@@ -220,18 +228,37 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	const bool lighting_only = settings.debug_view == DebugViewMode::LIGHTING;
 	const bool draw_lighting = (final || lighting_only) && base_pass.has_draws();
 	const bool draw_sky = final && !p_render_data->transparent_bg;
-	const YutrelEnvironmentSettings environment = YutrelEnvironmentSettings::get(p_render_data->environment);
 	const YutrelSkyParams sky_params = {
 		environment.sky_intensity,
 		Math::sin(environment.sky_rotation_radians),
 		Math::cos(environment.sky_rotation_radians),
 	};
 	const bool ibl_ready = (draw_lighting || draw_sky) && ibl_pass.prepare_environment(environment);
-	if (draw_lighting) {
-		directional_light_pass.render(targets, frame_buffer, lighting_only);
-		if (ibl_ready) {
-			ibl_pass.render(targets, frame_buffer, directional_light_pass.get_dfg_lut(), sky_params);
+	const bool debug_mask = settings.debug_view == DebugViewMode::SHADOW_MASK;
+	const bool debug_cascades = settings.debug_view == DebugViewMode::CSM_CASCADES;
+	bool primary_shadow = false;
+	if (lighting_only && (!draw_lighting || lights.is_empty())) {
+		rd->draw_list_begin(targets.lighting_framebuffer, RD::DRAW_CLEAR_COLOR_0, { Color(0, 0, 0, 0) }, 0.0f, 0, targets.region);
+		rd->draw_list_end();
+	}
+	if (draw_lighting || debug_mask || debug_cascades) {
+		for (uint32_t i = 0; i < lights.size(); i++) {
+			const DirectionalLightItem &light = lights[i];
+			if (light.params.has_shadow) {
+				shadow_mask_pass.render(targets, frame_buffer, csm_shadow_pass.get_depth_array(), light.shadow, debug_cascades);
+				primary_shadow = true;
+				if (debug_mask || debug_cascades) {
+					break;
+				}
+			}
+			if (draw_lighting) {
+				const RID mask = light.params.has_shadow ? targets.shadow_mask : material_bridge.get_white_texture();
+				directional_light_pass.render(targets, frame_buffer, light.params, mask, lighting_only && i == 0);
+			}
 		}
+	}
+	if (draw_lighting && ibl_ready) {
+		ibl_pass.render(targets, frame_buffer, directional_light_pass.get_dfg_lut(), sky_params);
 	}
 	if (draw_sky && ibl_ready) {
 		skybox_pass.render(targets, frame_buffer, ibl_pass.get_source_cubemap(), ibl_pass.get_cube_sampler(), sky_params);
@@ -240,7 +267,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	if (final) {
 		output_pass.render(targets, p_render_data->environment);
 	} else {
-		debug_view_pass.render(targets, settings.debug_view);
+		debug_view_pass.render(targets, settings.debug_view, primary_shadow);
 	}
 
 #ifdef TOOLS_ENABLED

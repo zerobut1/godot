@@ -44,7 +44,7 @@ class DebugViewPass {
 
 public:
 	bool prepare();
-	void render(const YutrelPipelineTargets &p_targets, DebugViewMode p_mode);
+	void render(const YutrelPipelineTargets &p_targets, DebugViewMode p_mode, bool p_has_primary_shadow);
 };
 
 } // namespace RendererSceneRenderImplementation

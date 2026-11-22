@@ -10,6 +10,16 @@ import brdf;
 [[vk::binding(5, 0)]] Texture2D<float2> dfg_lut;
 [[vk::binding(6, 0)]] SamplerState dfg_sampler;
 
+[[vk::binding(7, 0)]] Texture2D<float> shadow_mask;
+
+struct DirectionalLightParams
+{
+	float4 direction;
+	float3 radiance;
+	uint has_shadow;
+};
+[[vk::push_constant]] ConstantBuffer<DirectionalLightParams> light;
+
 [shader("vertex")]
 float4 vertex_main(uint vertex_id : SV_VulkanVertexID) : SV_Position
 {
@@ -38,18 +48,15 @@ float4 fragment_main(float4 position : SV_Position) : SV_Target0
 	float3 compensation = energy_compensation(f0, dfg_lut.SampleLevel(dfg_sampler, float2(NoV, perceptual_roughness), 0.0).g);
 
 	float3 lighting = float3(0.0);
-	for (uint i = 0; i < frame.light_count; ++i)
+	float3 L = light.direction.xyz;
+	float NoL = saturate(dot(N, L));
+	if (NoL > 0.0)
 	{
-		DirectionalLight light = frame.lights[i];
-		float3 L = light.direction.xyz;
-		float NoL = saturate(dot(N, L));
-		if (NoL > 0.0)
-		{
-			float3 H = normalize_or(V + L, N);
-			float NoH = saturate(dot(N, H));
-			float LoH = saturate(dot(L, H));
-			lighting += evaluate_brdf(diffuse, f0, roughness, NoV, NoL, NoH, LoH, compensation) * light.radiance.rgb * NoL;
-		}
+		float3 H = normalize_or(V + L, N);
+		float NoH = saturate(dot(N, H));
+		float LoH = saturate(dot(L, H));
+		float visibility = light.has_shadow != 0 ? shadow_mask.Load(pixel) : 1.0;
+		lighting = evaluate_brdf(diffuse, f0, roughness, NoV, NoL, NoH, LoH, compensation) * light.radiance * (NoL * visibility);
 	}
 	return float4(clamp(sanitize_finite(lighting), -65504.0, 65504.0), 0.0);
 }

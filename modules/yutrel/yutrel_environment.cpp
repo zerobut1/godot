@@ -69,6 +69,11 @@ void YutrelEnvironment::_bind_methods() {
 	BIND_ENUM_CONSTANT(SKY_MODE_CONSTANT_COLOR);
 	BIND_ENUM_CONSTANT(SKY_MODE_HDRI);
 
+	ClassDB::bind_method(D_METHOD("set_shadow_resolution", "resolution"), &YutrelEnvironment::set_shadow_resolution);
+	ClassDB::bind_method(D_METHOD("get_shadow_resolution"), &YutrelEnvironment::get_shadow_resolution);
+	ADD_GROUP("Shadow", "shadow_");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "shadow_resolution", PROPERTY_HINT_ENUM, "1024:1024,2048:2048,4096:4096"), "set_shadow_resolution", "get_shadow_resolution");
+
 	ADD_GROUP("Sky", "sky_");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "sky_mode", PROPERTY_HINT_ENUM, "Constant Color,HDRI Texture"), "set_sky_mode", "get_sky_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "sky_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_sky_color", "get_sky_color");
@@ -112,6 +117,12 @@ void YutrelEnvironment::_notification(int p_what) {
 			world.unref();
 		} break;
 	}
+}
+
+void YutrelEnvironment::set_shadow_resolution(int p_resolution) {
+	ERR_FAIL_COND(p_resolution != 1024 && p_resolution != 2048 && p_resolution != 4096);
+	shadow_resolution = p_resolution;
+	_publish_settings();
 }
 
 void YutrelEnvironment::set_sky_mode(SkyMode p_mode) {
@@ -165,6 +176,7 @@ void YutrelEnvironment::_publish_settings() {
 			sky_texture.is_valid() ? sky_texture->get_rid() : RID(),
 			sky_intensity,
 			Math::deg_to_rad(sky_rotation),
+			shadow_resolution,
 		};
 		YutrelEnvironmentSettings::set(internal_environment->get_rid(), settings);
 		RenderingServerDefault::redraw_request();

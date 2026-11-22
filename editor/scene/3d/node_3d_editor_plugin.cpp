@@ -6824,6 +6824,8 @@ Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p
 		popup->add_radio_check_item(TTRC("Lighting"), int(DebugViewMode::LIGHTING));
 		popup->set_item_tooltip(-1, TTR("Shows directional and ambient light contributions."));
 		popup->add_radio_check_item(TTRC("Depth"), int(DebugViewMode::DEPTH));
+		popup->add_radio_check_item(TTRC("Shadow Mask"), int(DebugViewMode::SHADOW_MASK));
+		popup->add_radio_check_item(TTRC("CSM Cascades"), int(DebugViewMode::CSM_CASCADES));
 		popup->set_item_checked(popup->get_item_index(int(DebugViewMode::FINAL)), true);
 		popup->connect(SceneStringName(id_pressed), callable_mp(this, &Node3DEditorViewport::_yutrel_menu_option));
 	}

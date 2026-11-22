@@ -31,10 +31,12 @@
 #pragma once
 
 #include "passes/base_pass.h"
+#include "passes/csm_shadow_pass.h"
 #include "passes/debug_view_pass.h"
 #include "passes/directional_light_pass.h"
 #include "passes/ibl_pass.h"
 #include "passes/output_pass.h"
+#include "passes/shadow_mask_pass.h"
 #include "passes/skybox_pass.h"
 #include "yutrel_material.h"
 
@@ -72,6 +74,8 @@ class RenderYutrel : public RendererSceneRenderRD {
 	YutrelMaterialBridge material_bridge;
 	RID frame_buffer;
 	BasePass base_pass;
+	CSMShadowPass csm_shadow_pass;
+	ShadowMaskPass shadow_mask_pass;
 	DirectionalLightPass directional_light_pass;
 	IBLPass ibl_pass;
 	SkyboxPass skybox_pass;

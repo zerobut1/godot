@@ -104,10 +104,11 @@ bool DirectionalLightPass::_bake_dfg_lut() {
 	return true;
 }
 
-void DirectionalLightPass::populate_frame_lights(const RenderDataRD &p_data, YutrelFrameData &r_frame) {
+LocalVector<DirectionalLightItem> DirectionalLightPass::collect(const RenderDataRD &p_data) {
+	LocalVector<DirectionalLightItem> items;
 	auto *lights = RendererRD::LightStorage::get_singleton();
 	if (p_data.lights) {
-		for (uint32_t i = 0; i < p_data.lights->size() && r_frame.light_count < std::size(r_frame.lights); i++) {
+		for (uint32_t i = 0; i < p_data.lights->size(); i++) {
 			const RID instance = (*p_data.lights)[i];
 			const RID light = lights->light_instance_get_base_light(instance);
 			if (lights->light_get_type(light) != RSE::LIGHT_DIRECTIONAL || lights->light_directional_get_sky_mode(light) == RSE::LIGHT_DIRECTIONAL_SKY_MODE_SKY_ONLY) {
@@ -120,16 +121,19 @@ void DirectionalLightPass::populate_frame_lights(const RenderDataRD &p_data, Yut
 			const Vector3 direction = lights->light_instance_get_base_transform(instance).basis.get_column(2).normalized();
 			const float energy = lights->light_get_param(light, RSE::LIGHT_PARAM_ENERGY) * (lights->light_is_negative(light) ? -1.0f : 1.0f);
 			const Color radiance = lights->light_get_color(light).srgb_to_linear() * energy;
-			YutrelDirectionalLight &gpu_light = r_frame.lights[r_frame.light_count++];
+			DirectionalLightItem item;
+			item.instance = instance;
 			for (int axis = 0; axis < 3; axis++) {
-				gpu_light.direction[axis] = direction[axis];
-				gpu_light.radiance[axis] = radiance[axis];
+				item.params.direction[axis] = direction[axis];
+				item.params.radiance[axis] = radiance[axis];
 			}
+			items.push_back(item);
 		}
 	}
+	return items;
 }
 
-void DirectionalLightPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, bool p_lighting_only) {
+void DirectionalLightPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const DirectionalLightParams &p_light, RID p_mask, bool p_clear) {
 	const RID sampler = RendererRD::MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
 	const RID light_set = UniformSetCacheRD::get_singleton()->get_cache(lighting_shader.get_shader(), 0,
 			RD::Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, p_frame_buffer),
@@ -138,8 +142,9 @@ void DirectionalLightPass::render(const YutrelPipelineTargets &p_targets, RID p_
 			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, p_targets.gbuffer_c),
 			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, p_targets.scene_depth),
 			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, dfg_lut),
-			RD::Uniform(RD::UNIFORM_TYPE_SAMPLER, 6, sampler));
-	draw_fullscreen("Yutrel DirectionalLightPass", Color(0.9, 0.8, 0.3), p_targets.region, p_targets.lighting_framebuffer, lighting_pipeline, light_set, nullptr, 0, p_lighting_only);
+			RD::Uniform(RD::UNIFORM_TYPE_SAMPLER, 6, sampler),
+			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, p_mask));
+	draw_fullscreen("Yutrel DirectionalLightPass", Color(0.9, 0.8, 0.3), p_targets.region, p_targets.lighting_framebuffer, lighting_pipeline, light_set, &p_light, sizeof(p_light), p_clear);
 }
 
 } // namespace RendererSceneRenderImplementation

@@ -51,6 +51,9 @@ public:
 		TONE_MAPPING_NONE,
 	};
 
+	void set_shadow_resolution(int p_resolution);
+	int get_shadow_resolution() const { return shadow_resolution; }
+
 	void set_sky_mode(SkyMode p_mode);
 	SkyMode get_sky_mode() const { return sky_mode; }
 
@@ -79,6 +82,7 @@ protected:
 	void _notification(int p_what);
 
 private:
+	int shadow_resolution = 2048;
 	SkyMode sky_mode = SKY_MODE_CONSTANT_COLOR;
 	Color sky_color = Color(0.22f, 0.25f, 0.30f);
 	Ref<Texture2D> sky_texture;

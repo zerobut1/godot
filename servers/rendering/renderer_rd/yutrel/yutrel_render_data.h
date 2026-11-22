@@ -37,14 +37,6 @@
 
 namespace RendererSceneRenderImplementation {
 
-struct YutrelDirectionalLight {
-	float direction[4] = {};
-	float radiance[4] = {};
-};
-
-static_assert(sizeof(YutrelDirectionalLight) == 32);
-static_assert(offsetof(YutrelDirectionalLight, radiance) == 16);
-
 struct YutrelFrameData {
 	float view_projection[4][4] = {};
 	float inv_view_projection[4][4] = {};
@@ -52,19 +44,13 @@ struct YutrelFrameData {
 	float camera_forward[4] = {};
 	float viewport_origin[2] = {};
 	float inv_viewport_size[2] = {};
-	uint32_t light_count = 0;
-	float padding0 = 0;
-	float padding1[2] = {};
-	YutrelDirectionalLight lights[4];
 };
 
-static_assert(sizeof(YutrelFrameData) == 320);
+static_assert(sizeof(YutrelFrameData) == 176);
 static_assert(offsetof(YutrelFrameData, inv_view_projection) == 64);
 static_assert(offsetof(YutrelFrameData, camera_position) == 128);
 static_assert(offsetof(YutrelFrameData, camera_forward) == 144);
 static_assert(offsetof(YutrelFrameData, viewport_origin) == 160);
-static_assert(offsetof(YutrelFrameData, light_count) == 176);
-static_assert(offsetof(YutrelFrameData, lights) == 192);
 
 struct YutrelInstanceData {
 	enum Flags : uint32_t {
@@ -116,6 +102,7 @@ struct YutrelPipelineTargets {
 	RID gbuffer_a;
 	RID gbuffer_b;
 	RID gbuffer_c;
+	RID shadow_mask;
 	RID output_color;
 	RID base_framebuffer;
 	RID lighting_framebuffer;

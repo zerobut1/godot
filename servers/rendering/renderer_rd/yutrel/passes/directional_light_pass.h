@@ -31,13 +31,26 @@
 #pragma once
 
 #include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
+#include "servers/rendering/renderer_rd/yutrel/csm_shadow_data.h"
 #include "servers/rendering/renderer_rd/yutrel/yutrel_shader.h"
 
 class RenderDataRD;
 
 namespace RendererSceneRenderImplementation {
 
-struct YutrelFrameData;
+struct DirectionalLightParams {
+	float direction[4] = {};
+	float radiance[3] = {};
+	uint32_t has_shadow = 0;
+};
+static_assert(sizeof(DirectionalLightParams) == 32);
+
+struct DirectionalLightItem {
+	RID instance;
+	DirectionalLightParams params;
+	CSMShadowData shadow;
+};
+
 struct YutrelPipelineTargets;
 
 class DirectionalLightPass {
@@ -57,8 +70,8 @@ public:
 	bool prepare_dfg_lut();
 	RID get_dfg_lut() const { return dfg_lut; }
 
-	static void populate_frame_lights(const RenderDataRD &p_data, YutrelFrameData &r_frame);
-	void render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, bool p_lighting_only);
+	static LocalVector<DirectionalLightItem> collect(const RenderDataRD &p_data);
+	void render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const DirectionalLightParams &p_light, RID p_mask, bool p_clear);
 };
 
 } // namespace RendererSceneRenderImplementation
