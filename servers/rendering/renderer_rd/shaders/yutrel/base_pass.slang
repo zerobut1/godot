@@ -63,11 +63,6 @@ GBufferTargets fragment_main(VertexOutput input, bool is_front_face : SV_IsFront
 {
 	MaterialData material = materials[input.material_id];
 	float3 geometric_normal = normalize(input.normal);
-	float3 dx = ddx(geometric_normal);
-	float3 dy = ddy(geometric_normal);
-	// Tokuyoshi-Kaplanyan isotropic filter in squared GGX alpha space.
-	float variance = 0.25 * (dot(dx, dx) + dot(dy, dy));
-	float kernel = min(2.0 * variance, 0.18);
 
 	float4 base = material.albedo * albedo_texture.Sample(material_sampler, input.uv);
 	if ((material.flags & VERTEX_COLOR) != 0)
@@ -97,7 +92,6 @@ GBufferTargets fragment_main(VertexOutput input, bool is_front_face : SV_IsFront
 	}
 
 	float roughness = saturate(material.roughness * dot(roughness_texture.Sample(material_sampler, input.uv), material.roughness_channel));
-	float alpha = roughness * roughness;
 	float3 emissive = material.emission;
 	if ((material.flags & HAS_EMISSION_TEXTURE) != 0)
 	{
@@ -108,7 +102,7 @@ GBufferTargets fragment_main(VertexOutput input, bool is_front_face : SV_IsFront
 	GBufferData surface;
 	surface.base_color = saturate(base.rgb);
 	surface.normal_ws = normal;
-	surface.roughness = sqrt(sqrt(saturate(alpha * alpha + kernel)));
+	surface.roughness = roughness;
 	surface.metallic = saturate(material.metallic * dot(metallic_texture.Sample(material_sampler, input.uv), material.metallic_channel));
 	surface.specular = saturate(material.specular);
 	surface.material_ao = saturate(dot(ao_texture.Sample(material_sampler, input.uv), material.ao_channel));

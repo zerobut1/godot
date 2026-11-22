@@ -40,6 +40,7 @@ namespace RendererSceneRenderImplementation {
 // Mode values are shared with YutrelEnvironment and output.slang.
 enum class ToneMappingMode : uint32_t {
 	AGX,
+	AGX_PUNCHY,
 	ACES,
 	NONE,
 };
@@ -59,7 +60,7 @@ struct YutrelSkyParams {
 static_assert(sizeof(YutrelSkyParams) == 12);
 
 struct YutrelEnvironmentSettings {
-	ToneMappingMode tone_mapping = ToneMappingMode::AGX;
+	ToneMappingMode tone_mapping = ToneMappingMode::AGX_PUNCHY;
 	float exposure = 1.0f;
 	SkyMode sky_mode = SkyMode::CONSTANT_COLOR;
 	Color linear_sky_color = Color(0.08f, 0.08f, 0.08f);

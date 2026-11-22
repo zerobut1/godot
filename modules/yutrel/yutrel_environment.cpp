@@ -40,6 +40,7 @@ using RendererSceneRenderImplementation::ToneMappingMode;
 using RendererSceneRenderImplementation::YutrelEnvironmentSettings;
 
 static_assert(int(YutrelEnvironment::TONE_MAPPING_AGX) == int(ToneMappingMode::AGX));
+static_assert(int(YutrelEnvironment::TONE_MAPPING_AGX_PUNCHY) == int(ToneMappingMode::AGX_PUNCHY));
 static_assert(int(YutrelEnvironment::TONE_MAPPING_ACES) == int(ToneMappingMode::ACES));
 static_assert(int(YutrelEnvironment::TONE_MAPPING_NONE) == int(ToneMappingMode::NONE));
 static_assert(int(YutrelEnvironment::SKY_MODE_CONSTANT_COLOR) == int(RendererSceneRenderImplementation::SkyMode::CONSTANT_COLOR));
@@ -62,6 +63,7 @@ void YutrelEnvironment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_exposure"), &YutrelEnvironment::get_exposure);
 
 	BIND_ENUM_CONSTANT(TONE_MAPPING_AGX);
+	BIND_ENUM_CONSTANT(TONE_MAPPING_AGX_PUNCHY);
 	BIND_ENUM_CONSTANT(TONE_MAPPING_ACES);
 	BIND_ENUM_CONSTANT(TONE_MAPPING_NONE);
 	BIND_ENUM_CONSTANT(SKY_MODE_CONSTANT_COLOR);
@@ -74,7 +76,7 @@ void YutrelEnvironment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "sky_intensity", PROPERTY_HINT_RANGE, "0.0,16.0,0.05,or_greater"), "set_sky_intensity", "get_sky_intensity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "sky_rotation", PROPERTY_HINT_RANGE, "-180.0,180.0,0.5"), "set_sky_rotation", "get_sky_rotation");
 	ADD_GROUP("Tone Mapping", "");
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "tone_mapping", PROPERTY_HINT_ENUM, "AgX,ACES,None"), "set_tone_mapping", "get_tone_mapping");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "tone_mapping", PROPERTY_HINT_ENUM, "AgX,AgX Punchy,ACES,None"), "set_tone_mapping", "get_tone_mapping");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure", PROPERTY_HINT_RANGE, "0.0,16.0,0.05,or_greater"), "set_exposure", "get_exposure");
 }
 

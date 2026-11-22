@@ -46,6 +46,7 @@ public:
 
 	enum ToneMapping {
 		TONE_MAPPING_AGX,
+		TONE_MAPPING_AGX_PUNCHY,
 		TONE_MAPPING_ACES,
 		TONE_MAPPING_NONE,
 	};
@@ -83,7 +84,7 @@ private:
 	Ref<Texture2D> sky_texture;
 	float sky_intensity = 1.0f;
 	float sky_rotation = 0.0f;
-	ToneMapping tone_mapping = TONE_MAPPING_AGX;
+	ToneMapping tone_mapping = TONE_MAPPING_AGX_PUNCHY;
 	float exposure = 1.0f;
 	Ref<Environment> internal_environment;
 	Ref<Environment> previous_environment;
