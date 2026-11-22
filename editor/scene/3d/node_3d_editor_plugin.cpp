@@ -6827,6 +6827,8 @@ Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p
 		popup->add_radio_check_item(TTRC("Shadow Mask"), int(DebugViewMode::SHADOW_MASK));
 		popup->add_radio_check_item(TTRC("CSM Cascades"), int(DebugViewMode::CSM_CASCADES));
 		popup->add_radio_check_item(TTRC("Path Tracer"), int(DebugViewMode::PATH_TRACER));
+		popup->add_radio_check_item(TTRC("DDGI Indirect"), int(DebugViewMode::DDGI_INDIRECT));
+		popup->add_radio_check_item(TTRC("DDGI Probes"), int(DebugViewMode::DDGI_PROBES));
 		popup->set_item_checked(popup->get_item_index(int(DebugViewMode::FINAL)), true);
 		popup->connect(SceneStringName(id_pressed), callable_mp(this, &Node3DEditorViewport::_yutrel_menu_option));
 	}

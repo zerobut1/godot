@@ -62,7 +62,7 @@ def run(exe, project, appdata, shaders, label, suite, dependencies):
     work = project.parent
     prefix = suite.upper()
     reload_env = f"YUTREL_{prefix}_RELOAD_MARKER"
-    editor = label == "editor"
+    editor = label in ("editor", "editor-embedded")
     log = work / f"{label}.log"
     marker = work / "reload-done"
     marker.unlink(missing_ok=True)
@@ -74,6 +74,8 @@ def run(exe, project, appdata, shaders, label, suite, dependencies):
         env[reload_env] = str(marker)
     args = [exe, "--path", project, "--rendering-method", "yutrel", "--rendering-driver", "vulkan",
             "--gpu-validation", "--verbose", "--single-window", "--max-fps", "60"]
+    if not editor:
+        args.extend(["--fixed-fps", "60"])
     args.extend(["--editor", "res://editor_scene.tscn"] if editor else ["--script", f"res://test_{suite}.gd"])
     timestamps = {}
     with log.open("wb") as stream:
@@ -103,7 +105,7 @@ def run(exe, project, appdata, shaders, label, suite, dependencies):
     success = f"{prefix} EDITOR PASS" if editor else f"{prefix} RUNTIME PASS"
     if status or errors or success not in text or 'Insert instance layer "VK_LAYER_KHRONOS_validation"' not in text:
         raise RuntimeError(f"{label} failed ({status}): {errors[:12]}. See {log}")
-    if label == "embedded":
+    if label in ("embedded", "editor-embedded"):
         for module in {name for modules in dependencies.values() for name in modules}:
             if f"loaded {module} from embedded sources." not in text:
                 raise RuntimeError(f"{module} did not load from the executable")
@@ -111,7 +113,7 @@ def run(exe, project, appdata, shaders, label, suite, dependencies):
     return re.findall(rf"^{prefix} IMAGE ([0-9a-f]{{64}})$", text, re.M)
 
 
-def verify_fixture(fixture, description, dependencies):
+def verify_fixture(fixture, description, dependencies, *, embedded_editor=False):
     suite = fixture.name
     root = fixture.parents[2]
     shaders = root / "servers/rendering/renderer_rd/shaders/yutrel"
@@ -125,6 +127,8 @@ def verify_fixture(fixture, description, dependencies):
     run(exe, project, appdata, shaders, "editor", suite, dependencies)
     with embedded_only(shaders, work):
         embedded = run(exe, project, appdata, shaders, "embedded", suite, dependencies)
+        if embedded_editor:
+            run(exe, project, appdata, shaders, "editor-embedded", suite, dependencies)
     if len(disk) != 1 or disk != embedded:
         raise RuntimeError("Disk and embedded HDR images differ")
     print(f"{suite.upper()} HDR image matches on disk and embedded: {disk[0]}")

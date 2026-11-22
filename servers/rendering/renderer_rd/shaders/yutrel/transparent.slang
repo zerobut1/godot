@@ -2,6 +2,7 @@ import common;
 import csm;
 import gbuffer;
 import ibl_lighting;
+import ddgi_common;
 import pbr;
 import surface;
 
@@ -21,6 +22,9 @@ struct TransparentDirectionalLight
 [[vk::binding(9, 0)]] TextureCube<float4> prefilter_cubemap;
 [[vk::binding(10, 0)]] SamplerState cube_sampler;
 [[vk::binding(11, 0)]] StructuredBuffer<float4> sh;
+[[vk::binding(12, 0)]] ConstantBuffer<DDGIVolumeData> volume;
+[[vk::binding(13, 0)]] Texture2DArray<float4> probe_irradiance;
+[[vk::binding(14, 0)]] Texture2DArray<float2> probe_distance;
 
 struct DrawData
 {
@@ -72,8 +76,10 @@ float4 fragment_main(VertexOutput input, bool is_front_face : SV_IsFrontFace) : 
 		}
 		if (draw.has_ibl != 0)
 		{
-			IBLParams sky = { draw.sky_intensity, draw.sky_sin_rot, draw.sky_cos_rot, draw.prefilter_max_mip };
-			color += evaluate_ibl(p, surface.material_ao, sky, prefilter_cubemap, cube_sampler, sh);
+			IBLParams sky = { draw.sky_intensity, draw.sky_sin_rot, draw.sky_cos_rot, draw.prefilter_max_mip, 0 };
+			DDGIResources probes = { probe_irradiance, probe_distance, linear_clamp };
+			color += evaluate_ibl(p, surface.material_ao, sky, prefilter_cubemap, cube_sampler, sh,
+			world, volume, probes);
 		}
 	}
 	color = clamp(sanitize_finite(color), 0.0, 65504.0);

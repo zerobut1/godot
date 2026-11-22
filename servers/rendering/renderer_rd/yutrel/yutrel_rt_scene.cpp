@@ -40,6 +40,22 @@
 
 namespace RendererSceneRenderImplementation {
 
+bool YutrelRayTracingScene::is_supported(uint32_t p_pass_textures) {
+	RD *rd = RD::get_singleton();
+	return rd->has_feature(RD::SUPPORTS_RAY_QUERY) &&
+			rd->limit_get(RD::LIMIT_MAX_TEXTURES_PER_SHADER_STAGE) >= MAX_TEXTURES + p_pass_textures &&
+			rd->limit_get(RD::LIMIT_MAX_TEXTURES_PER_UNIFORM_SET) >= MAX_TEXTURES + p_pass_textures;
+}
+
+RID YutrelRayTracingScene::get_scenario(const RenderDataRD &p_data) {
+	for (const RendererViewport::Viewport *viewport : RSG::viewport->active_viewports) {
+		if (viewport->render_buffers.ptr() == p_data.render_buffers.ptr()) {
+			return viewport->scenario;
+		}
+	}
+	return RID();
+}
+
 namespace {
 
 struct SceneInstance {
@@ -52,24 +68,18 @@ struct SceneInstance {
 // A camera's raster draw list omits off-screen reflectors, emitters and occluders.
 LocalVector<SceneInstance> collect_instances(const RenderDataRD &p_data) {
 	LocalVector<SceneInstance> result;
-	for (const RendererViewport::Viewport *viewport : RSG::viewport->active_viewports) {
-		if (viewport->render_buffers.ptr() != p_data.render_buffers.ptr()) {
-			continue;
-		}
-		const auto *scenario = RendererSceneCull::singleton->scenario_owner.get_or_null(viewport->scenario);
-		if (scenario) {
-			using InstanceData = RendererSceneCull::InstanceData;
-			const uint32_t layers = p_data.scene_data->camera_visible_layers & ((1u << 20) - 1);
-			for (uint32_t i = 0; i < scenario->instance_data.size(); i++) {
-				const InstanceData &data = scenario->instance_data[i];
-				if ((data.flags & InstanceData::FLAG_BASE_TYPE_MASK) != RSE::INSTANCE_MESH || !(data.layer_mask & layers)) {
-					continue;
-				}
-				result.push_back({ static_cast<const RenderGeometryInstanceBase *>(data.instance_geometry), bool(data.flags & InstanceData::FLAG_CAST_SHADOWS_ONLY) });
+	const auto *scenario = RendererSceneCull::singleton->scenario_owner.get_or_null(YutrelRayTracingScene::get_scenario(p_data));
+	if (scenario) {
+		using InstanceData = RendererSceneCull::InstanceData;
+		const uint32_t layers = p_data.scene_data->camera_visible_layers & ((1u << 20) - 1);
+		for (uint32_t i = 0; i < scenario->instance_data.size(); i++) {
+			const InstanceData &data = scenario->instance_data[i];
+			if ((data.flags & InstanceData::FLAG_BASE_TYPE_MASK) != RSE::INSTANCE_MESH || !(data.layer_mask & layers)) {
+				continue;
 			}
-			return result;
+			result.push_back({ static_cast<const RenderGeometryInstanceBase *>(data.instance_geometry), bool(data.flags & InstanceData::FLAG_CAST_SHADOWS_ONLY) });
 		}
-		break;
+		return result;
 	}
 	// Preview renders can supply a draw list without an associated viewport scenario.
 	if (p_data.instances) {

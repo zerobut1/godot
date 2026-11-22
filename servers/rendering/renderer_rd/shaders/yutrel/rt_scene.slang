@@ -89,14 +89,14 @@ Triangle load_triangle(RTSurface s, uint primitive, float2 bary)
 
 static const uint CULL_FRONT = 256;
 
-bool accept_candidate(uint instance, uint geometry, uint primitive, float2 bary, float3 dir, bool shadow)
+bool accept_candidate(uint instance, uint geometry, uint primitive, float2 bary, float3 dir, bool shadow, bool include_backfaces = false)
 {
 	RTInstance inst = rt_instances[instance];
 	RTSurface s = rt_surfaces[inst.first_surface + geometry];
 	if ((s.flags & 1) != 0 || (!shadow && (inst.flags & 2) != 0))
 		return false;
 	MaterialData mat = rt_materials[s.material_id];
-	bool check_side = (mat.flags & DOUBLE_SIDED) == 0 && (!shadow || (mat.flags & CULL_FRONT) != 0);
+	bool check_side = !include_backfaces && (mat.flags & DOUBLE_SIDED) == 0 && (!shadow || (mat.flags & CULL_FRONT) != 0);
 	if (!check_side && (mat.flags & ALPHA_SCISSOR) == 0)
 		return true;
 	Triangle tri = load_triangle(s, primitive, bary);
@@ -127,7 +127,7 @@ public bool trace_shadow_ray(float3 origin, float3 dir, float t_min, float t_max
 	return q.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
 }
 
-public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, out RTHit hit)
+public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, out RTHit hit, bool include_backfaces = false)
 {
 	hit = {};
 	RayDesc ray = { origin, t_min, dir, t_max };
@@ -144,7 +144,7 @@ public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, o
 		q.TraceRayInline(rt_tlas, attempt == 0 ? RAY_FLAG_NONE : RAY_FLAG_FORCE_NON_OPAQUE, 0xff, ray);
 		for (uint i = 0; i < 64 && q.Proceed(); ++i)
 		{
-			if (accept_candidate(q.CandidateInstanceID(), q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics(), dir, false))
+			if (accept_candidate(q.CandidateInstanceID(), q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics(), dir, false, include_backfaces))
 				q.CommitNonOpaqueTriangleHit();
 		}
 		if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
@@ -154,7 +154,7 @@ public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, o
 		tri = load_triangle(s, q.CommittedPrimitiveIndex(), q.CommittedTriangleBarycentrics());
 		face = tri.face_normal(inst);
 		mat = rt_materials[s.material_id];
-		if ((mat.flags & DOUBLE_SIDED) != 0 || ((dot(face, dir) < 0) != ((mat.flags & CULL_FRONT) != 0)))
+		if (include_backfaces || (mat.flags & DOUBLE_SIDED) != 0 || ((dot(face, dir) < 0) != ((mat.flags & CULL_FRONT) != 0)))
 			break;
 	}
 	float3 w = tri.weights;
@@ -167,6 +167,9 @@ public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, o
 	hit.is_front_face = dot(face, dir) < 0;
 	hit.geometric_normal = hit.is_front_face ? face : -face;
 	hit.is_double_sided = (mat.flags & DOUBLE_SIDED) != 0;
+	// Probe blending only needs the signed distance for a single-sided backface.
+	if (include_backfaces && !hit.is_front_face && !hit.is_double_sided)
+		return true;
 	hit.is_unlit = (mat.flags & UNLIT) != 0;
 	float3 n = normalize_or(mul_normal_3x3(inst.normal, a.normal * w.x + b.normal * w.y + c.normal * w.z), face);
 	float4 tangent = a.tangent * w.x + b.tangent * w.y + c.tangent * w.z;

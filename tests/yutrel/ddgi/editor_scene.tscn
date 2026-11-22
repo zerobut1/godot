@@ -1,0 +1,41 @@
+[gd_scene format=3]
+
+[sub_resource type="StandardMaterial3D" id="White"]
+metallic_specular = 0.0
+
+[sub_resource type="StandardMaterial3D" id="Red"]
+albedo_color = Color(1, 0, 0, 1)
+metallic_specular = 0.0
+
+[sub_resource type="QuadMesh" id="Receiver"]
+material = SubResource("White")
+size = Vector2(6, 4)
+
+[sub_resource type="BoxMesh" id="Wall"]
+material = SubResource("Red")
+size = Vector3(0.2, 4, 4)
+
+[node name="DDGITest" type="Node3D"]
+
+[node name="Sky" type="YutrelEnvironment" parent="."]
+sky_intensity = 0.0
+tone_mapping = 3
+
+[node name="Volume" type="YutrelDDGIVolume" parent="."]
+size = Vector3(8, 8, 8)
+probe_counts = Vector3i(8, 8, 8)
+hysteresis = 0.5
+probe_preview_radius = 0.18
+
+[node name="Room" type="Node3D" parent="."]
+
+[node name="Receiver" type="MeshInstance3D" parent="Room"]
+mesh = SubResource("Receiver")
+
+[node name="Wall" type="MeshInstance3D" parent="Room"]
+position = Vector3(2, 0, 2)
+mesh = SubResource("Wall")
+
+[node name="Sun" type="DirectionalLight3D" parent="Room"]
+rotation = Vector3(0, -1.5707963, 0)
+light_energy = 4.0

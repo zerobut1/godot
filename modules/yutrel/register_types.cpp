@@ -30,14 +30,25 @@
 
 #include "register_types.h"
 
+#include "yutrel_ddgi_volume.h"
 #include "yutrel_environment.h"
+
+#ifdef TOOLS_ENABLED
+#include "yutrel_ddgi_gizmo.h"
+#endif
 
 #include "core/object/class_db.h"
 
 void initialize_yutrel_module(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
 		GDREGISTER_CLASS(YutrelEnvironment);
+		GDREGISTER_CLASS(YutrelDDGIVolume);
 	}
+#ifdef TOOLS_ENABLED
+	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
+		EditorPlugins::add_by_type<YutrelDDGIEditorPlugin>();
+	}
+#endif
 }
 
 void uninitialize_yutrel_module(ModuleInitializationLevel p_level) {

@@ -54,6 +54,7 @@ public:
 	RID gbuffer_c;
 	RID shadow_mask;
 	RID path_tracer_accum;
+	DDGIPass::History ddgi_history;
 	uint64_t pt_state_hash = 0;
 	uint32_t pt_sample_count = 0;
 
@@ -77,6 +78,7 @@ public:
 		path_tracer_accum = RID();
 		pt_sample_count = 0;
 		pt_state_hash = 0;
+		ddgi_history.clear();
 	}
 };
 
@@ -265,7 +267,9 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		return;
 	}
 
-	const bool final = settings.debug_view == DebugViewMode::FINAL;
+	const bool probes = settings.debug_view == DebugViewMode::DDGI_PROBES;
+	const bool indirect_only = settings.debug_view == DebugViewMode::DDGI_INDIRECT;
+	const bool final = settings.debug_view == DebugViewMode::FINAL || probes;
 	const bool lighting_only = settings.debug_view == DebugViewMode::LIGHTING;
 	const bool draw_lighting = (final || lighting_only) && base_pass.has_draws();
 	const bool draw_transparent = (final || lighting_only) && transparent_pass.has_draws();
@@ -275,12 +279,28 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		Math::sin(environment.sky_rotation_radians),
 		Math::cos(environment.sky_rotation_radians),
 	};
-	const bool ibl_ready = (draw_lighting || draw_sky || draw_transparent) && ibl_pass.prepare_environment(environment);
+	const Ref<YutrelRenderBufferData> custom = p_render_data->render_buffers->get_custom_data(SNAME("Yutrel"));
+	YutrelDDGISettings volume;
+	const bool has_volume = YutrelDDGISettings::get(YutrelRayTracingScene::get_scenario(*p_render_data), volume);
+	const bool needs_ddgi = has_volume && volume.size[volume.size.min_axis_index()] > 0 &&
+			(final || lighting_only || indirect_only) && YutrelRayTracingScene::is_supported(3);
+	const bool ibl_ready = (needs_ddgi || draw_lighting || draw_sky || draw_transparent) && ibl_pass.prepare_environment(environment);
+	const bool ddgi_ready = needs_ddgi && ibl_ready && rt_scene.update(*p_render_data, material_bridge) &&
+			ddgi_pass.update(custom->ddgi_history, volume, lights, ibl_pass, sky_params, rt_scene, p_render_data->scene_data->time_step);
+	if (!has_volume && custom->ddgi_history.bindings.volume.is_valid()) {
+		custom->ddgi_history.clear();
+	}
+	DDGIBindings bindings;
+	if (ddgi_ready) {
+		bindings = custom->ddgi_history.bindings;
+	} else if (draw_lighting || draw_transparent) {
+		bindings = ibl_pass.get_inactive_ddgi();
+	}
 	const bool debug_mask = settings.debug_view == DebugViewMode::SHADOW_MASK;
 	const bool debug_cascades = settings.debug_view == DebugViewMode::CSM_CASCADES;
 	bool primary_shadow = false;
-	if (lighting_only && (!draw_lighting || lights.is_empty())) {
-		rd->draw_list_begin(targets.lighting_framebuffer, RD::DRAW_CLEAR_COLOR_0, { Color(0, 0, 0, 0) }, 0.0f, 0, targets.region);
+	if (indirect_only || (lighting_only && (!draw_lighting || lights.is_empty()))) {
+		rd->draw_list_begin(targets.lighting_framebuffer, RD::DRAW_CLEAR_COLOR_0, { Color(0, 0, 0, indirect_only ? 1 : 0) }, 0.0f, 0, targets.region);
 		rd->draw_list_end();
 	}
 	if (draw_lighting || debug_mask || debug_cascades) {
@@ -299,8 +319,8 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 			}
 		}
 	}
-	if (draw_lighting && ibl_ready) {
-		ibl_pass.render(targets, frame_buffer, directional_light_pass.get_dfg_lut(), sky_params);
+	if ((draw_lighting || (indirect_only && ddgi_ready && base_pass.has_draws())) && ibl_ready) {
+		ibl_pass.render(targets, frame_buffer, directional_light_pass.get_dfg_lut(), sky_params, bindings, indirect_only);
 	}
 	if (draw_sky && ibl_ready) {
 		skybox_pass.render(targets, frame_buffer, ibl_pass.get_source_cubemap(), ibl_pass.get_cube_sampler(), sky_params);
@@ -308,11 +328,14 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 
 	if (draw_transparent) {
 		transparent_pass.render(targets, frame_buffer, lights, csm_shadow_pass.get_depth_array(), shadow_mask_pass.get_comparison_sampler(),
-				directional_light_pass.get_dfg_lut(), ibl_pass, ibl_ready, sky_params);
+				directional_light_pass.get_dfg_lut(), ibl_pass, ibl_ready, sky_params, bindings);
 	}
 
-	if (final) {
+	if (final || indirect_only) {
 		output_pass.render(targets, p_render_data->environment);
+		if (probes && ddgi_ready) {
+			ddgi_pass.draw_probes(targets, frame_buffer, custom->ddgi_history, environment);
+		}
 	} else {
 		debug_view_pass.render(targets, settings.debug_view, primary_shadow);
 	}

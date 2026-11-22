@@ -63,12 +63,13 @@ struct SHParams {
 struct IBLParams {
 	YutrelSkyParams sky;
 	float max_mip;
+	uint32_t indirect_only;
 };
 
 static_assert(sizeof(EquirectParams) == 24);
 static_assert(sizeof(PrefilterParams) == 16);
 static_assert(sizeof(SHParams) == 8);
-static_assert(sizeof(IBLParams) == 16);
+static_assert(sizeof(IBLParams) == 20);
 
 template <typename Params>
 bool dispatch(RID p_pipeline, RID p_set, const Params &p_params, uint32_t p_x, uint32_t p_y, uint32_t p_z = 1) {
@@ -85,23 +86,6 @@ bool dispatch(RID p_pipeline, RID p_set, const Params &p_params, uint32_t p_x, u
 }
 
 } // namespace
-
-IBLPass::BakeShader::~BakeShader() {
-	if (pipeline.is_valid()) {
-		RD::get_singleton()->free_rid(pipeline);
-	}
-}
-
-bool IBLPass::BakeShader::prepare(const char *p_path) {
-	if (refresh_shader(shader, p_path)) {
-		// YutrelShader frees the old shader and its dependent compute pipeline.
-		pipeline = RID();
-	}
-	if (pipeline.is_null() && shader.get_shader().is_valid()) {
-		pipeline = RD::get_singleton()->compute_pipeline_create(shader.get_shader());
-	}
-	return pipeline.is_valid();
-}
 
 IBLPass::Cube::~Cube() {
 	if (texture.is_valid()) {
@@ -139,7 +123,7 @@ bool IBLPass::Cube::initialize(uint32_t p_size, uint32_t p_mips, const char *p_n
 
 IBLPass::~IBLPass() {
 	RD *rd = RD::get_singleton();
-	for (const RID rid : { sh_partial_sums, sh_buffer, sh_source_view, cube_sampler, panorama_sampler }) {
+	for (const RID rid : { sh_partial_sums, sh_buffer, sh_source_view, inactive_ddgi.volume, inactive_ddgi.irradiance, cube_sampler, panorama_sampler }) {
 		if (rid.is_valid()) {
 			rd->free_rid(rid);
 		}
@@ -299,7 +283,31 @@ bool IBLPass::_bake(const BakeKey &p_key) {
 			dispatch(convolve_sh.pipeline, set, SHParams{ 1, sh_size }, 9 * 8, 8);
 }
 
-void IBLPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_dfg_lut, const YutrelSkyParams &p_sky) {
+DDGIBindings IBLPass::get_inactive_ddgi() {
+	RD *rd = RD::get_singleton();
+	if (inactive_ddgi.volume.is_null()) {
+		Vector<uint8_t> zero;
+		zero.resize(sizeof(DDGIVolumeData));
+		zero.fill(0);
+		inactive_ddgi.volume = rd->uniform_buffer_create(zero.size(), zero);
+		ERR_FAIL_COND_V(inactive_ddgi.volume.is_null(), DDGIBindings());
+		rd->set_resource_name(inactive_ddgi.volume, "Yutrel Inactive DDGI Volume");
+	}
+	if (inactive_ddgi.irradiance.is_null()) {
+		RD::TextureFormat format;
+		format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+		format.texture_type = RD::TEXTURE_TYPE_2D_ARRAY;
+		format.width = format.height = format.array_layers = 1;
+		format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT;
+		inactive_ddgi.irradiance = rd->texture_create(format, {}, { Vector<uint8_t>{ 0, 0, 0, 0 } });
+		ERR_FAIL_COND_V(inactive_ddgi.irradiance.is_null(), DDGIBindings());
+		inactive_ddgi.distance = inactive_ddgi.irradiance;
+		rd->set_resource_name(inactive_ddgi.irradiance, "Yutrel Empty DDGI Atlas");
+	}
+	return inactive_ddgi;
+}
+
+void IBLPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_dfg_lut, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi, bool p_indirect_only) {
 	if (!baked || lighting_shader.get_shader().is_null()) {
 		return;
 	}
@@ -315,8 +323,11 @@ void IBLPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer,
 			Uniform(RD::UNIFORM_TYPE_SAMPLER, 6, linear_clamp),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, filtered.texture),
 			Uniform(RD::UNIFORM_TYPE_SAMPLER, 8, cube_sampler),
-			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 9, sh_buffer));
-	const IBLParams params = { p_sky, get_prefilter_max_mip() };
+			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 9, sh_buffer),
+			Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 10, p_ddgi.volume),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 11, p_ddgi.irradiance),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 12, p_ddgi.distance));
+	const IBLParams params = { p_sky, get_prefilter_max_mip(), p_indirect_only };
 	draw_fullscreen("Yutrel IBLPass", Color(0.25, 0.7, 0.85), p_targets.region, p_targets.lighting_framebuffer, lighting_pipeline, set, &params, sizeof(params));
 }
 

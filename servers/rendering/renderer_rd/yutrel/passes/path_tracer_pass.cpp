@@ -37,10 +37,7 @@
 namespace RendererSceneRenderImplementation {
 
 bool PathTracerPass::is_supported() {
-	RD *rd = RD::get_singleton();
-	constexpr uint32_t sampled_images = YutrelRayTracingScene::MAX_TEXTURES + 1; // Includes the sky.
-	return rd->has_feature(RD::SUPPORTS_RAY_QUERY) &&
-			rd->limit_get(RD::LIMIT_MAX_TEXTURES_PER_SHADER_STAGE) >= sampled_images && rd->limit_get(RD::LIMIT_MAX_TEXTURES_PER_UNIFORM_SET) >= sampled_images;
+	return YutrelRayTracingScene::is_supported(1);
 }
 
 bool PathTracerPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const YutrelFrameData &p_frame,

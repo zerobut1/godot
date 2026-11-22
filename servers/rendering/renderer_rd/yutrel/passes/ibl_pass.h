@@ -33,7 +33,8 @@
 #include "core/templates/local_vector.h"
 #include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
 #include "servers/rendering/renderer_rd/yutrel/yutrel_environment_settings.h"
-#include "servers/rendering/renderer_rd/yutrel/yutrel_shader.h"
+#include "servers/rendering/renderer_rd/yutrel/ddgi_data.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_render_data.h"
 
 #include <array>
 
@@ -47,14 +48,6 @@ class IBLPass {
 	static constexpr uint32_t PREFILTER_SIZE = 256;
 	static constexpr uint32_t PREFILTER_MIPS = 7;
 	static constexpr uint32_t SH_SOURCE_MIP = 3;
-
-	struct BakeShader {
-		YutrelShader shader;
-		RID pipeline;
-
-		~BakeShader();
-		bool prepare(const char *p_path);
-	};
 
 	struct BakeKey {
 		SkyMode mode = SkyMode::CONSTANT_COLOR;
@@ -77,10 +70,10 @@ class IBLPass {
 	};
 
 	YutrelShader lighting_shader;
-	BakeShader equirect;
-	BakeShader downsample;
-	BakeShader prefilter;
-	BakeShader convolve_sh;
+	YutrelComputeShader equirect;
+	YutrelComputeShader downsample;
+	YutrelComputeShader prefilter;
+	YutrelComputeShader convolve_sh;
 	PipelineCacheRD lighting_pipeline;
 	Cube source;
 	Cube filtered;
@@ -89,6 +82,7 @@ class IBLPass {
 	RID sh_source_view;
 	RID sh_buffer;
 	RID sh_partial_sums;
+	DDGIBindings inactive_ddgi;
 	BakeKey baked_key;
 	bool baked = false;
 
@@ -106,7 +100,8 @@ public:
 	static constexpr float get_prefilter_max_mip() { return PREFILTER_MIPS - 1.0f; }
 	RID get_cube_sampler() const { return cube_sampler; }
 
-	void render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_dfg_lut, const YutrelSkyParams &p_sky);
+	DDGIBindings get_inactive_ddgi();
+	void render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_dfg_lut, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi, bool p_indirect_only);
 };
 
 } // namespace RendererSceneRenderImplementation

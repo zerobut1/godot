@@ -163,6 +163,31 @@ inline bool refresh_shader(YutrelShader &p_shader, const char *p_path) {
 	return p_shader.get_version() != version;
 }
 
+struct YutrelComputeShader {
+	YutrelShader shader;
+	RID pipeline;
+
+	~YutrelComputeShader();
+	bool prepare(const char *p_path);
+};
+
+inline YutrelComputeShader::~YutrelComputeShader() {
+	if (pipeline.is_valid()) {
+		RD::get_singleton()->free_rid(pipeline);
+	}
+}
+
+inline bool YutrelComputeShader::prepare(const char *p_path) {
+	if (refresh_shader(shader, p_path)) {
+		// YutrelShader frees the old shader and its dependent compute pipeline.
+		pipeline = RID();
+	}
+	if (pipeline.is_null() && shader.get_shader().is_valid()) {
+		pipeline = RD::get_singleton()->compute_pipeline_create(shader.get_shader());
+	}
+	return pipeline.is_valid();
+}
+
 inline void draw_fullscreen(Span<char> p_label, const Color &p_color, const Rect2i &p_region, RID p_framebuffer, PipelineCacheRD &p_pipeline, RID p_uniform_set, const void *p_constants = nullptr, uint32_t p_constants_size = 0, bool p_clear = false) {
 	RD *rd = RD::get_singleton();
 	const RID pipeline = p_pipeline.get_render_pipeline(RD::INVALID_FORMAT_ID, rd->framebuffer_get_format(p_framebuffer));

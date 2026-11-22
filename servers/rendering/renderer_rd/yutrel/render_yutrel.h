@@ -32,6 +32,7 @@
 
 #include "passes/base_pass.h"
 #include "passes/csm_shadow_pass.h"
+#include "passes/ddgi_pass.h"
 #include "passes/debug_view_pass.h"
 #include "passes/directional_light_pass.h"
 #include "passes/ibl_pass.h"
@@ -86,6 +87,7 @@ class RenderYutrel : public RendererSceneRenderRD {
 	DebugViewPass debug_view_pass;
 	YutrelRayTracingScene rt_scene;
 	PathTracerPass path_tracer_pass;
+	DDGIPass ddgi_pass;
 	bool runtime_path_tracing = false;
 #ifdef TOOLS_ENABLED
 	EditorGizmoPass editor_gizmos;

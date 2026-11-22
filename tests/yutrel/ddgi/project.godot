@@ -1,0 +1,15 @@
+config_version=5
+
+[application]
+config/name="Yutrel DDGI verification"
+run/main_scene="res://editor_scene.tscn"
+
+[display]
+window/size/viewport_width=600
+window/size/viewport_height=320
+
+[editor_plugins]
+enabled=PackedStringArray("res://addons/ddgi_test/plugin.cfg")
+
+[rendering]
+renderer/rendering_method="yutrel"

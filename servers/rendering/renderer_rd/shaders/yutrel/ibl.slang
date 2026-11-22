@@ -2,6 +2,7 @@ import pbr;
 import common;
 import gbuffer;
 import ibl_lighting;
+import ddgi_common;
 
 [[vk::binding(0, 0)]] ConstantBuffer<FrameData> frame;
 [[vk::binding(1, 0)]] Texture2D<float4> gbuffer_a;
@@ -13,6 +14,9 @@ import ibl_lighting;
 [[vk::binding(7, 0)]] TextureCube<float4> prefilter_cubemap;
 [[vk::binding(8, 0)]] SamplerState cube_sampler;
 [[vk::binding(9, 0)]] StructuredBuffer<float4> sh;
+[[vk::binding(10, 0)]] ConstantBuffer<DDGIVolumeData> volume;
+[[vk::binding(11, 0)]] Texture2DArray<float4> probe_irradiance;
+[[vk::binding(12, 0)]] Texture2DArray<float2> probe_distance;
 
 [[vk::push_constant]] ConstantBuffer<IBLParams> params;
 
@@ -35,6 +39,8 @@ float4 fragment_main(float4 position : SV_Position) : SV_Target0
 	GBufferData surface = decode_gbuffer(a, gbuffer_b.Load(pixel), gbuffer_c.Load(pixel));
 	float3 world = reconstruct_world_position(position.xy, depth, frame);
 	ShadingData p = prepare_shading(surface, frame, world, dfg_lut, linear_clamp);
-	float3 color = evaluate_ibl(p, surface.material_ao, params, prefilter_cubemap, cube_sampler, sh);
+	DDGIResources probes = { probe_irradiance, probe_distance, linear_clamp };
+	float3 color = evaluate_ibl(p, surface.material_ao, params, prefilter_cubemap, cube_sampler, sh,
+			world, volume, probes);
 	return float4(clamp(sanitize_finite(color), 0.0, 65504.0), 0.0);
 }

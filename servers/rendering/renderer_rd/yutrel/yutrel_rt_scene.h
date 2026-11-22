@@ -100,6 +100,9 @@ class YutrelRayTracingScene {
 public:
 	static constexpr uint32_t MAX_TEXTURES = 512;
 
+	static bool is_supported(uint32_t p_pass_textures);
+	static RID get_scenario(const RenderDataRD &p_data);
+
 	YutrelRayTracingScene() = default;
 	YutrelRayTracingScene(const YutrelRayTracingScene &) = delete;
 	YutrelRayTracingScene &operator=(const YutrelRayTracingScene &) = delete;

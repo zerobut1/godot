@@ -66,7 +66,7 @@ bool TransparentPass::_upload_lights(const LocalVector<DirectionalLightItem> &p_
 }
 
 void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const LocalVector<DirectionalLightItem> &p_lights,
-		RID p_shadow_array, RID p_comparison_sampler, RID p_dfg_lut, const IBLPass &p_ibl, bool p_has_ibl, const YutrelSkyParams &p_sky) {
+		RID p_shadow_array, RID p_comparison_sampler, RID p_dfg_lut, const IBLPass &p_ibl, bool p_has_ibl, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi) {
 	ERR_FAIL_COND(!upload_geometry() || !_upload_lights(p_lights));
 	RD *rd = RD::get_singleton();
 	if (p_shadow_array.is_null()) {
@@ -103,7 +103,10 @@ void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame
 			Uniform(RD::UNIFORM_TYPE_SAMPLER, 8, linear),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 9, cube),
 			Uniform(RD::UNIFORM_TYPE_SAMPLER, 10, p_has_ibl ? p_ibl.get_cube_sampler() : linear),
-			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 11, p_has_ibl ? p_ibl.get_sh_buffer() : fallback_sh));
+			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 11, p_has_ibl ? p_ibl.get_sh_buffer() : fallback_sh),
+			Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 12, p_ddgi.volume),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, p_ddgi.irradiance),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_ddgi.distance));
 	const RID framebuffer = FramebufferCacheRD::get_singleton()->get_cache(p_targets.scene_color, p_targets.scene_depth);
 	ERR_FAIL_COND(set.is_null() || framebuffer.is_null());
 

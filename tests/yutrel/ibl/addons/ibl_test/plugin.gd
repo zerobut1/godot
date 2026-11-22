@@ -56,14 +56,14 @@ func run() -> void:
 		check(popup.is_item_checked(i), "Yutrel debug menu changes its selection")
 		var image := await snapshot(view)
 		check(not image.is_empty(), "Editor debug view renders")
-		# The dedicated RT fixture verifies Path Tracer. On raster-only devices it falls back to Final.
-		if labels[-1] != "Path Tracer":
+		# Dedicated fixtures check the views that require RT hardware or a volume.
+		if i < 10:
 			for previous in images:
 				check(image.get_data() != previous.get_data(), "Editor debug views produce distinct output")
 		images.append(image)
-	check(labels == PackedStringArray(["Final", "Albedo", "World Normal", "Roughness", "Metallic", "Material AO", "Lighting", "Depth", "Shadow Mask", "CSM Cascades", "Path Tracer"]),
+	check(labels == PackedStringArray(["Final", "Albedo", "World Normal", "Roughness", "Metallic", "Material AO", "Lighting", "Depth", "Shadow Mask", "CSM Cascades", "Path Tracer", "DDGI Indirect", "DDGI Probes"]),
 			"Editor debug menus expose all expected views")
-	if labels.size() != 11:
+	if labels.size() != 13:
 		get_tree().quit(1)
 		return
 

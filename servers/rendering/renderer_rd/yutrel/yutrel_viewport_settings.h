@@ -49,6 +49,8 @@ enum class DebugViewMode : uint32_t {
 	SHADOW_MASK,
 	CSM_CASCADES,
 	PATH_TRACER,
+	DDGI_INDIRECT,
+	DDGI_PROBES,
 };
 
 struct YutrelViewportSettings {
