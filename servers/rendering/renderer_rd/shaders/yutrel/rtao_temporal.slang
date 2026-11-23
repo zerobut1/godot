@@ -1,4 +1,5 @@
 import common;
+import rtao_common;
 
 [[vk::binding(0, 0)]] ConstantBuffer<FrameData> frame;
 [[vk::binding(1, 0)]] ConstantBuffer<FrameData> prev_frame;
@@ -14,6 +15,8 @@ import common;
 
 struct TemporalParams
 {
+	int2 full_size;
+	uint pixel_scale;
 	uint has_history;
 	float max_history, dt_scale;
 };
@@ -36,7 +39,7 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 	int2 size = int2(width, height);
 	if (any(tid.xy >= uint2(size)))
 		return;
-	int2 pixel = int2(tid.xy) + int2(frame.viewport_origin);
+	int2 pixel = rtao_frame_pixel(int2(tid.xy), params.pixel_scale, params.full_size, frame.viewport_origin);
 	float depth = scene_depth.Load(int3(pixel, 0));
 	float4 normal = gbuffer_b.Load(int3(pixel, 0));
 	curr_depth[tid.xy] = depth;
@@ -54,9 +57,10 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 		if (clip.w > 0 && clip.z >= 0 && clip.z <= clip.w && all(abs(clip.xy) <= clip.w))
 		{
 			// History is viewport-local. Add the previous origin only for world reconstruction.
-			float2 uv_pixel = (clip.xy / clip.w * 0.5 + 0.5) / prev_frame.inv_viewport_size - 0.5;
-			int2 base = int2(floor(uv_pixel));
-			float2 f = frac(uv_pixel);
+			float2 prev_full = (clip.xy / clip.w * 0.5 + 0.5) / prev_frame.inv_viewport_size;
+			float2 prev_work = (prev_full - 0.5) / float(params.pixel_scale);
+			int2 base = int2(floor(prev_work));
+			float2 f = frac(prev_work);
 			for (int y = 0; y < 2; ++y)
 				for (int x = 0; x < 2; ++x)
 				{
@@ -64,7 +68,8 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 					if (any(tap < 0) || any(tap >= size))
 						continue;
 					int3 coord = int3(tap, 0);
-					if (!compatible(world, N, threshold, tap + int2(prev_frame.viewport_origin),
+					int2 tap_pixel = rtao_frame_pixel(tap, params.pixel_scale, params.full_size, prev_frame.viewport_origin);
+					if (!compatible(world, N, threshold, tap_pixel,
 							prev_depth.Load(coord), prev_normal.Load(coord), prev_frame))
 						continue;
 					float w = (x == 0 ? 1 - f.x : f.x) * (y == 0 ? 1 - f.y : f.y);
@@ -88,7 +93,7 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 						int2 tap = int2(tid.xy) + int2(x, y);
 						if ((x == 0 && y == 0) || any(tap < 0) || any(tap >= size))
 							continue;
-						int2 p = tap + int2(frame.viewport_origin);
+						int2 p = rtao_frame_pixel(tap, params.pixel_scale, params.full_size, frame.viewport_origin);
 						if (!compatible(world, N, threshold, p, scene_depth.Load(int3(p, 0)), gbuffer_b.Load(int3(p, 0)), frame))
 							continue;
 						float v = raw_ao.Load(int3(tap, 0));

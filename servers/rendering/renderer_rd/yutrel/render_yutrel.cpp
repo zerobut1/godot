@@ -309,16 +309,18 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	}
 	bool ddgi_ready = false;
 	if (needs_ddgi && ibl_ready && rt_ready) {
-		RENDER_TIMESTAMP("Yutrel DDGI");
+		RENDER_TIMESTAMP("> Yutrel DDGI");
 		ddgi_ready = ddgi_pass.update(custom->ddgi_history, volume, lights, ibl_pass, sky_params, rt_scene, p_render_data->scene_data->time_step);
+		RENDER_TIMESTAMP("< Yutrel DDGI");
 	}
 	if (!has_volume && custom->ddgi_history.bindings.volume.is_valid()) {
 		custom->ddgi_history.clear();
 	}
 	bool rtao_ready = false;
 	if (needs_rtao && rt_ready) {
-		RENDER_TIMESTAMP("Yutrel RTAO");
+		RENDER_TIMESTAMP("> Yutrel RTAO");
 		rtao_ready = rtao_pass.render(custom->rtao_history, targets, frame_buffer, frame, environment, rt_scene, p_render_data->scene_data->time_step);
+		RENDER_TIMESTAMP("< Yutrel RTAO");
 	}
 	if (!rtao_ready) {
 		custom->rtao_history.has_history = false;

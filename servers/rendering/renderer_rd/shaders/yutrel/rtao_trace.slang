@@ -1,4 +1,5 @@
 import common;
+import rtao_common;
 import rt_scene;
 
 [[vk::binding(0, 0)]] ConstantBuffer<FrameData> frame;
@@ -8,6 +9,8 @@ import rt_scene;
 
 struct TraceParams
 {
+	int2 full_size;
+	uint pixel_scale;
 	float radius;
 	uint samples, frame_index, has_tlas;
 };
@@ -48,7 +51,7 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 	int2 size = int2(width, height);
 	if (any(tid.xy >= uint2(size)))
 		return;
-	int2 pixel = int2(tid.xy) + int2(frame.viewport_origin);
+	int2 pixel = rtao_frame_pixel(int2(tid.xy), params.pixel_scale, params.full_size, frame.viewport_origin);
 	float depth = scene_depth.Load(int3(pixel, 0));
 	if (depth <= 0 || params.has_tlas == 0)
 	{
@@ -57,8 +60,8 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 	}
 	float3 world = reconstruct_world_position(pixel + 0.5, depth, frame);
 	float3 N = normalize_or(gbuffer_b.Load(int3(pixel, 0)).rgb * 2 - 1, float3(0, 0, 1));
-	float3 dx = derivative(pixel, int2(1, 0), size, world);
-	float3 dy = derivative(pixel, int2(0, 1), size, world);
+	float3 dx = derivative(pixel, int2(1, 0), params.full_size, world);
+	float3 dy = derivative(pixel, int2(0, 1), params.full_size, world);
 	float3 footprint = reconstruct_world_position(pixel + 1.5, depth, frame) - world;
 	float limit_sq = max(0.0004, 256 * dot(footprint, footprint));
 	float3 Ng = N;

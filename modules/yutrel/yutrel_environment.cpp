@@ -73,6 +73,8 @@ void YutrelEnvironment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_shadow_resolution"), &YutrelEnvironment::get_shadow_resolution);
 	ClassDB::bind_method(D_METHOD("set_rtao_enabled", "enabled"), &YutrelEnvironment::set_rtao_enabled);
 	ClassDB::bind_method(D_METHOD("get_rtao_enabled"), &YutrelEnvironment::get_rtao_enabled);
+	ClassDB::bind_method(D_METHOD("set_rtao_half_resolution", "enabled"), &YutrelEnvironment::set_rtao_half_resolution);
+	ClassDB::bind_method(D_METHOD("get_rtao_half_resolution"), &YutrelEnvironment::get_rtao_half_resolution);
 	ClassDB::bind_method(D_METHOD("set_rtao_radius", "radius"), &YutrelEnvironment::set_rtao_radius);
 	ClassDB::bind_method(D_METHOD("get_rtao_radius"), &YutrelEnvironment::get_rtao_radius);
 	ClassDB::bind_method(D_METHOD("set_rtao_intensity", "intensity"), &YutrelEnvironment::set_rtao_intensity);
@@ -91,6 +93,7 @@ void YutrelEnvironment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "sky_rotation", PROPERTY_HINT_RANGE, "-180.0,180.0,0.5"), "set_sky_rotation", "get_sky_rotation");
 	ADD_GROUP("RTAO", "rtao_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rtao_enabled"), "set_rtao_enabled", "get_rtao_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rtao_half_resolution"), "set_rtao_half_resolution", "get_rtao_half_resolution");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rtao_radius", PROPERTY_HINT_RANGE, "0.05,10.0,0.05"), "set_rtao_radius", "get_rtao_radius");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rtao_intensity", PROPERTY_HINT_RANGE, "0.0,4.0,0.05"), "set_rtao_intensity", "get_rtao_intensity");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "rtao_samples", PROPERTY_HINT_RANGE, "1,8,1"), "set_rtao_samples", "get_rtao_samples");
@@ -185,6 +188,11 @@ void YutrelEnvironment::set_rtao_enabled(bool p_enabled) {
 	_publish_settings();
 }
 
+void YutrelEnvironment::set_rtao_half_resolution(bool p_enabled) {
+	rtao_half_resolution = p_enabled;
+	_publish_settings();
+}
+
 void YutrelEnvironment::set_rtao_radius(float p_radius) {
 	ERR_FAIL_COND(!Math::is_finite(p_radius));
 	rtao_radius = CLAMP(p_radius, 0.05f, 10.0f);
@@ -214,6 +222,7 @@ void YutrelEnvironment::_publish_settings() {
 			Math::deg_to_rad(sky_rotation),
 			shadow_resolution,
 			rtao_enabled,
+			rtao_half_resolution,
 			rtao_radius,
 			rtao_intensity,
 			rtao_samples,

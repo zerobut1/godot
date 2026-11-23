@@ -105,13 +105,14 @@ func frame_variance(a: Image, b: Image, region: Rect2i) -> float:
 	return total / region.get_area()
 
 
-func contact_and_history() -> void:
+func contact_and_history(digest: HashingContext) -> void:
 	sky.rtao_radius = 1.5
 	sky.rtao_enabled = false
 	var white := await snapshot(2)
 	var baseline := sample_at(white, -0.1)
 	sky.rtao_enabled = true
 	var previous := await snapshot(1)
+	var first := previous
 	var region := Rect2i(Vector2i(camera.unproject_position(Vector3(-0.7, 0.8, -5))), Vector2i(18, 50))
 	var early := 0.0
 	var late := 0.0
@@ -129,10 +130,14 @@ func contact_and_history() -> void:
 	print("RTAO TEMPORAL early_ms_delta=%.9f late_ms_delta=%.9f" % [early, late])
 	check(baseline > 0.99 and crease < baseline - 0.22 and mid > crease + 0.08 and open > 0.985, "Contact occlusion fades smoothly into the open receiver")
 	check(early > 0 and late < 0.35 * early, "Temporal accumulation reduces static frame-to-frame variance")
-	var hash := HashingContext.new()
-	hash.start(HashingContext.HASH_SHA256)
-	hash.update(previous.get_data())
-	print("RTAO IMAGE ", hash.finish().hex_encode())
+	digest.update(previous.get_data())
+	if sky.rtao_half_resolution:
+		sky.rtao_half_resolution = false
+		var full := await snapshot(1)
+		sky.rtao_half_resolution = true
+		var restarted := await snapshot(1)
+		check(full.get_data() != first.get_data() and restarted.get_data() == first.get_data(),
+				"Switching resolutions in place restarts the half-resolution sampling sequence")
 
 	sky.rtao_radius = 0.2
 	var narrow := sample_at(await snapshot(20), -0.57)
@@ -168,9 +173,12 @@ func contact_and_history() -> void:
 
 func offscreen_cutout() -> void:
 	# Keep the wall completely outside the right clip plane, within one AO radius.
-	view.size = Vector2i(193, 129)
 	camera.position.x = -0.5 * camera.size * view.size.aspect() - 0.05
-	var solid := sample_at(await snapshot(24), -0.21)
+	var solid_image := await snapshot(24)
+	var solid := sample_at(solid_image, -0.21)
+	# The last row and column of this odd viewport both have half-resolution sample centers.
+	var edge := Vector2i(view.size.x - 1, view.size.y - 1)
+	var edge_solid := solid_image.get_pixelv(edge).r
 	var wall: MeshInstance3D = corner.get_node("Wall")
 	var cutout := StandardMaterial3D.new()
 	cutout.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
@@ -178,9 +186,12 @@ func offscreen_cutout() -> void:
 	holes.fill(Color(1, 1, 1, 0))
 	cutout.albedo_texture = ImageTexture.create_from_image(holes)
 	wall.material_override = cutout
-	var cut := sample_at(await snapshot(32), -0.21)
-	print("RTAO OFFSCREEN solid=%.7f alpha_cutout=%.7f" % [solid, cut])
+	var cut_image := await snapshot(32)
+	var cut := sample_at(cut_image, -0.21)
+	var edge_cut := cut_image.get_pixelv(edge).r
+	print("RTAO OFFSCREEN solid=%.7f alpha_cutout=%.7f edge_solid=%.7f edge_cut=%.7f" % [solid, cut, edge_solid, edge_cut])
 	check(solid < 0.83 and cut > 0.985, "The off-frustum wall occludes the visible plane only at opaque ray intersections")
+	check(edge_solid < 0.85 and edge_cut > 0.985, "The bottom-right pixel of the odd viewport follows the occluder")
 	wall.material_override = null
 	camera.position.x = 0
 
@@ -198,6 +209,8 @@ func direct_isolation() -> void:
 	var with_ao := sample_at(combined, -0.1)
 	print("RTAO DIRECT disabled=%.7f enabled=%.7f" % [without, with_ao])
 	check(without > 0.5 and direct.get_data() == combined.get_data(), "Direct-only HDR output is bit-identical with RTAO enabled")
+	sun.free()
+	sky.sky_intensity = 1
 
 
 func run() -> void:
@@ -214,27 +227,34 @@ func run() -> void:
 	corner = scene.get_node("Corner")
 	corner.position.z = -5
 	sky = scene.get_node("Sky")
-	check(sky.rtao_enabled and sky.rtao_radius == 1 and sky.rtao_intensity == 1 and sky.rtao_samples == 1, "RTAO defaults")
+	check(sky.rtao_enabled and sky.rtao_half_resolution and sky.rtao_radius == 1 and sky.rtao_intensity == 1 and sky.rtao_samples == 1, "RTAO defaults")
 	sky.rtao_radius = -1
 	sky.rtao_samples = 30
 	sky.rtao_intensity = 6
 	check(is_equal_approx(sky.rtao_radius, 0.05) and sky.rtao_samples == 8 and sky.rtao_intensity == 4, "RTAO property bounds")
-	sky.rtao_radius = 1
-	sky.rtao_samples = 8
 	sky.rtao_intensity = 1
 	camera = Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 	camera.size = 4
 	view.add_child(camera)
 	camera.make_current()
-	await furnace_and_normal_map()
-	if OS.has_environment("YUTREL_RTAO_RELOAD_MARKER"):
-		print("RTAO READY FOR RELOAD")
-		while not FileAccess.file_exists(OS.get_environment("YUTREL_RTAO_RELOAD_MARKER")):
-			await create_timer(0.1).timeout
-	sky.rtao_samples = 1
-	await contact_and_history()
-	await offscreen_cutout()
-	await direct_isolation()
+	var digest := HashingContext.new()
+	digest.start(HashingContext.HASH_SHA256)
+	for half_res in [true, false]:
+		print("RTAO MODE ", "half" if half_res else "full")
+		sky.rtao_half_resolution = half_res
+		sky.rtao_radius = 1
+		sky.rtao_samples = 8
+		await furnace_and_normal_map()
+		if half_res and OS.has_environment("YUTREL_RTAO_RELOAD_MARKER"):
+			print("RTAO READY FOR RELOAD")
+			while not FileAccess.file_exists(OS.get_environment("YUTREL_RTAO_RELOAD_MARKER")):
+				await create_timer(0.1).timeout
+		view.size = Vector2i(193, 129)
+		sky.rtao_samples = 1
+		await contact_and_history(digest)
+		await offscreen_cutout()
+		await direct_isolation()
+	print("RTAO IMAGE ", digest.finish().hex_encode())
 	print("RTAO RUNTIME PASS" if failures == 0 else "RTAO RUNTIME FAIL")
 	quit(failures)

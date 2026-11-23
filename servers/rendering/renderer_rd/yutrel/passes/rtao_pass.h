@@ -39,28 +39,30 @@ class RTAOPass {
 	YutrelComputeShader trace;
 	YutrelComputeShader temporal;
 	YutrelComputeShader denoise;
+	YutrelComputeShader upsample;
 	RID fallback_ao;
 
 public:
 	struct History {
-		RID ao_texture, raw_ao, denoise_temp;
+		RID ao_texture, raw_ao, denoise_temp, filtered_ao;
 		RID history[2], prev_depth[2], prev_normal[2];
 		RID prev_frame_buffer;
 		YutrelFrameData prev_frame;
 		bool has_history = false;
 		uint32_t frame_index = 0;
 		uint32_t history_slot = 0;
-		Size2i size;
+		Size2i full_size, work_size;
 		uint64_t shader_version = 0;
 		float last_radius = 0;
 		int last_samples = 0;
+		bool last_half_resolution = true;
 #ifdef TOOLS_ENABLED
 		uint32_t converged_frames = 0;
 		uint64_t last_scene_hash = 0;
 		float last_intensity = 0;
 #endif
 
-		bool ensure_size(Size2i p_size);
+		bool ensure_size(Size2i p_full_size, Size2i p_work_size);
 		void clear();
 		~History() { clear(); }
 	};

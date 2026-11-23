@@ -78,6 +78,9 @@ public:
 	void set_rtao_enabled(bool p_enabled);
 	bool get_rtao_enabled() const { return rtao_enabled; }
 
+	void set_rtao_half_resolution(bool p_enabled);
+	bool get_rtao_half_resolution() const { return rtao_half_resolution; }
+
 	void set_rtao_radius(float p_radius);
 	float get_rtao_radius() const { return rtao_radius; }
 
@@ -103,6 +106,7 @@ private:
 	ToneMapping tone_mapping = TONE_MAPPING_AGX_PUNCHY;
 	float exposure = 1.0f;
 	bool rtao_enabled = true;
+	bool rtao_half_resolution = true;
 	float rtao_radius = 1.0f;
 	float rtao_intensity = 1.0f;
 	int rtao_samples = 1;

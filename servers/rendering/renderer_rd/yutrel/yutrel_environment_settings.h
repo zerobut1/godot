@@ -69,6 +69,7 @@ struct YutrelEnvironmentSettings {
 	float sky_rotation_radians = 0.0f;
 	int shadow_resolution = 2048;
 	bool rtao_enabled = true;
+	bool rtao_half_resolution = true;
 	float rtao_radius = 1.0f;
 	float rtao_intensity = 1.0f;
 	int rtao_samples = 1;

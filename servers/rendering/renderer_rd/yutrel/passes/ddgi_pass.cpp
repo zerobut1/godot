@@ -38,6 +38,7 @@
 
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
+#include "servers/rendering/rendering_server_globals.h"
 
 namespace RendererSceneRenderImplementation {
 
@@ -204,6 +205,7 @@ bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector
 		YutrelSkyParams sky;
 	} params = { p_lights.size(), p_scene.has_tlas(), p_sky };
 	static_assert(sizeof(TraceParams) == 20);
+	RENDER_TIMESTAMP("Yutrel DDGI Trace");
 	rd->draw_command_begin_label("Yutrel DDGIProbeTrace", Color(0.3f, 0.8f, 0.6f));
 	const RD::ComputeListID list = rd->compute_list_begin();
 	rd->compute_list_bind_compute_pipeline(list, trace.pipeline);
@@ -216,10 +218,12 @@ bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector
 
 	// Trace and both blends use last frame's positions and states. Publish new probe data afterwards.
 	const Vector3i tiles(counts.x, counts.z, counts.y);
+	RENDER_TIMESTAMP("Yutrel DDGI Blend");
 	dispatch("Yutrel DDGIProbeBlendIrradiance", blend_irradiance.pipeline, irr_set, tiles);
 	dispatch("Yutrel DDGIProbeBlendDistance", blend_distance.pipeline, dist_set, tiles);
 	if (update_probes) {
 		const Vector3i groups((counts.x * counts.y * counts.z + 31) / 32, 1, 1);
+		RENDER_TIMESTAMP("Yutrel DDGI Relocate/Classify");
 		dispatch("Yutrel DDGIProbeRelocation", relocate.pipeline, relocate_set, groups);
 		dispatch("Yutrel DDGIProbeClassification", classify.pipeline, classify_set, groups);
 	}
