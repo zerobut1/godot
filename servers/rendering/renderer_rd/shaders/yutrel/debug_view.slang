@@ -8,9 +8,11 @@ import gbuffer;
 [[vk::binding(4, 0)]] Texture2D<float4> scene_color;
 
 [[vk::binding(5, 0)]] Texture2D<float> shadow_mask;
+[[vk::binding(6, 0)]] Texture2D<float> ao_texture;
 
 struct DebugData
 {
+	int2 viewport_origin;
 	uint output_linear;
 	uint mode;
 	uint has_primary_shadow;
@@ -28,7 +30,7 @@ float4 fragment_main(float4 position : SV_Position) : SV_Target0
 {
 	int3 pixel = int3(int2(position.xy), 0);
 	float depth = scene_depth.Load(pixel);
-	if (depth <= 0.0 && debug_data.mode != 8)
+	if (depth <= 0.0 && debug_data.mode != 8 && debug_data.mode != 13)
 	{
 		return float4(0.0, 0.0, 0.0, 1.0);
 	}
@@ -55,6 +57,10 @@ float4 fragment_main(float4 position : SV_Position) : SV_Target0
 			break;
 		case 9:
 			color = debug_data.has_primary_shadow != 0 ? scene_color.Load(pixel).rgb : float3(0.0);
+			break;
+		case 13:
+			color = load_viewport_ao(ao_texture, pixel.xy - debug_data.viewport_origin);
+			display_encoded = true;
 			break;
 		case 7:
 			// A logarithmic display curve reveals distant reverse-Z geometry.

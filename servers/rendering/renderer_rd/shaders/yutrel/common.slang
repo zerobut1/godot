@@ -146,6 +146,14 @@ public float3 reconstruct_world_position(float2 pixel, float depth, FrameData fr
 	return world.xyz / world.w;
 }
 
+// The shared white AO fallback has one texel; history textures are viewport-local.
+public float load_viewport_ao(Texture2D<float> texture, int2 local_pixel)
+{
+	uint width, height;
+	texture.GetDimensions(width, height);
+	return texture.Load(int3(min(local_pixel, int2(width, height) - 1), 0));
+}
+
 public float3 linear_to_srgb(float3 color)
 {
 	return select(color <= 0.0031308, 12.92 * color, 1.055 * pow(max(color, 0.0), 1.0 / 2.4) - 0.055);

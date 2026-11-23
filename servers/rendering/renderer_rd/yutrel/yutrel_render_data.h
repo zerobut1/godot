@@ -104,6 +104,7 @@ struct YutrelPipelineTargets {
 	RID gbuffer_b;
 	RID gbuffer_c;
 	RID shadow_mask;
+	RID ao_texture;
 	RID output_color;
 	RID base_framebuffer;
 	RID lighting_framebuffer;

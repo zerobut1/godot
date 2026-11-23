@@ -328,7 +328,8 @@ void IBLPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer,
 			Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 10, p_ddgi.volume),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 11, p_ddgi.irradiance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 12, p_ddgi.distance),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, p_ddgi.probe_data));
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, p_ddgi.probe_data),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_targets.ao_texture));
 	const IBLParams params = { p_sky, get_prefilter_max_mip(), p_indirect_only };
 	draw_fullscreen("Yutrel IBLPass", Color(0.25, 0.7, 0.85), p_targets.region, p_targets.lighting_framebuffer, lighting_pipeline, set, &params, sizeof(params));
 }

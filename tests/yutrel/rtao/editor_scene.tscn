@@ -1,0 +1,27 @@
+[gd_scene format=3]
+
+[sub_resource type="StandardMaterial3D" id="White"]
+metallic_specular = 0.0
+
+[sub_resource type="QuadMesh" id="Receiver"]
+material = SubResource("White")
+size = Vector2(8, 5)
+
+[sub_resource type="BoxMesh" id="Wall"]
+material = SubResource("White")
+size = Vector3(0.3, 5, 2)
+
+[node name="RTAOTest" type="Node3D"]
+
+[node name="Sky" type="YutrelEnvironment" parent="."]
+sky_color = Color(1, 1, 1, 1)
+tone_mapping = 3
+
+[node name="Corner" type="Node3D" parent="."]
+
+[node name="Receiver" type="MeshInstance3D" parent="Corner"]
+mesh = SubResource("Receiver")
+
+[node name="Wall" type="MeshInstance3D" parent="Corner"]
+position = Vector3(0.15, 0, 1)
+mesh = SubResource("Wall")

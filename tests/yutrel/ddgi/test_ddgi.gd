@@ -151,6 +151,8 @@ func furnace() -> void:
 
 
 func relocation_and_classification() -> void:
+	# These buried-probe checks isolate irradiance next to the enclosing solid.
+	sky.rtao_enabled = false
 	# One metre spacing. The angled receiver sits outside the solid's silhouette.
 	# Bias its sample toward the center probe to make that probe's weight measurable.
 	sky.sky_intensity = 1
@@ -193,6 +195,7 @@ func relocation_and_classification() -> void:
 	print("DDGI BURIED classified=%.6f unclassified=%.6f" % [classified, unclassified])
 	check(classified > 0.5 and classified > unclassified + 0.25, "Rejecting a deeply buried probe preserves the adjacent receiver's illumination")
 
+	sky.rtao_enabled = true
 	# A transparent receiver samples the grid without inserting any triangles into the TLAS.
 	# Leave the grid and ray configuration unchanged while opaque geometry enters and leaves.
 	reset_geometry()

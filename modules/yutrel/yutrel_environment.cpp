@@ -71,6 +71,15 @@ void YutrelEnvironment::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_shadow_resolution", "resolution"), &YutrelEnvironment::set_shadow_resolution);
 	ClassDB::bind_method(D_METHOD("get_shadow_resolution"), &YutrelEnvironment::get_shadow_resolution);
+	ClassDB::bind_method(D_METHOD("set_rtao_enabled", "enabled"), &YutrelEnvironment::set_rtao_enabled);
+	ClassDB::bind_method(D_METHOD("get_rtao_enabled"), &YutrelEnvironment::get_rtao_enabled);
+	ClassDB::bind_method(D_METHOD("set_rtao_radius", "radius"), &YutrelEnvironment::set_rtao_radius);
+	ClassDB::bind_method(D_METHOD("get_rtao_radius"), &YutrelEnvironment::get_rtao_radius);
+	ClassDB::bind_method(D_METHOD("set_rtao_intensity", "intensity"), &YutrelEnvironment::set_rtao_intensity);
+	ClassDB::bind_method(D_METHOD("get_rtao_intensity"), &YutrelEnvironment::get_rtao_intensity);
+	ClassDB::bind_method(D_METHOD("set_rtao_samples", "samples"), &YutrelEnvironment::set_rtao_samples);
+	ClassDB::bind_method(D_METHOD("get_rtao_samples"), &YutrelEnvironment::get_rtao_samples);
+
 	ADD_GROUP("Shadow", "shadow_");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "shadow_resolution", PROPERTY_HINT_ENUM, "1024:1024,2048:2048,4096:4096"), "set_shadow_resolution", "get_shadow_resolution");
 
@@ -80,6 +89,11 @@ void YutrelEnvironment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "sky_texture", PROPERTY_HINT_RESOURCE_TYPE, "Texture2D"), "set_sky_texture", "get_sky_texture");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "sky_intensity", PROPERTY_HINT_RANGE, "0.0,16.0,0.05,or_greater"), "set_sky_intensity", "get_sky_intensity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "sky_rotation", PROPERTY_HINT_RANGE, "-180.0,180.0,0.5"), "set_sky_rotation", "get_sky_rotation");
+	ADD_GROUP("RTAO", "rtao_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rtao_enabled"), "set_rtao_enabled", "get_rtao_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rtao_radius", PROPERTY_HINT_RANGE, "0.05,10.0,0.05"), "set_rtao_radius", "get_rtao_radius");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rtao_intensity", PROPERTY_HINT_RANGE, "0.0,4.0,0.05"), "set_rtao_intensity", "get_rtao_intensity");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "rtao_samples", PROPERTY_HINT_RANGE, "1,8,1"), "set_rtao_samples", "get_rtao_samples");
 	ADD_GROUP("Tone Mapping", "");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "tone_mapping", PROPERTY_HINT_ENUM, "AgX,AgX Punchy,ACES,None"), "set_tone_mapping", "get_tone_mapping");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure", PROPERTY_HINT_RANGE, "0.0,16.0,0.05,or_greater"), "set_exposure", "get_exposure");
@@ -166,6 +180,28 @@ void YutrelEnvironment::set_exposure(float p_exposure) {
 	_publish_settings();
 }
 
+void YutrelEnvironment::set_rtao_enabled(bool p_enabled) {
+	rtao_enabled = p_enabled;
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_rtao_radius(float p_radius) {
+	ERR_FAIL_COND(!Math::is_finite(p_radius));
+	rtao_radius = CLAMP(p_radius, 0.05f, 10.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_rtao_intensity(float p_intensity) {
+	ERR_FAIL_COND(!Math::is_finite(p_intensity));
+	rtao_intensity = CLAMP(p_intensity, 0.0f, 4.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_rtao_samples(int p_samples) {
+	rtao_samples = CLAMP(p_samples, 1, 8);
+	_publish_settings();
+}
+
 void YutrelEnvironment::_publish_settings() {
 	if (world.is_valid()) {
 		const YutrelEnvironmentSettings settings = {
@@ -177,6 +213,10 @@ void YutrelEnvironment::_publish_settings() {
 			sky_intensity,
 			Math::deg_to_rad(sky_rotation),
 			shadow_resolution,
+			rtao_enabled,
+			rtao_radius,
+			rtao_intensity,
+			rtao_samples,
 		};
 		YutrelEnvironmentSettings::set(internal_environment->get_rid(), settings);
 		RenderingServerDefault::redraw_request();

@@ -113,7 +113,7 @@ def run(exe, project, appdata, shaders, label, suite, dependencies):
     return re.findall(rf"^{prefix} IMAGE ([0-9a-f]{{64}})$", text, re.M)
 
 
-def verify_fixture(fixture, description, dependencies, *, embedded_editor=False):
+def verify_fixture(fixture, description, dependencies, *, embedded_editor=False, compare_editor_image=False):
     suite = fixture.name
     root = fixture.parents[2]
     shaders = root / "servers/rendering/renderer_rd/shaders/yutrel"
@@ -124,11 +124,15 @@ def verify_fixture(fixture, description, dependencies, *, embedded_editor=False)
     exe = parser.parse_args().exe.resolve()
     project, appdata = prepare_project(fixture, work)
     disk = run(exe, project, appdata, shaders, "disk", suite, dependencies)
-    run(exe, project, appdata, shaders, "editor", suite, dependencies)
+    editor = run(exe, project, appdata, shaders, "editor", suite, dependencies)
     with embedded_only(shaders, work):
         embedded = run(exe, project, appdata, shaders, "embedded", suite, dependencies)
         if embedded_editor:
-            run(exe, project, appdata, shaders, "editor-embedded", suite, dependencies)
+            embedded_view = run(exe, project, appdata, shaders, "editor-embedded", suite, dependencies)
+            if compare_editor_image:
+                if len(editor) != 1 or editor != embedded_view:
+                    raise RuntimeError("Disk and embedded editor images differ")
+                print(f"{suite.upper()} editor image matches on disk and embedded: {editor[0]}")
     if len(disk) != 1 or disk != embedded:
         raise RuntimeError("Disk and embedded HDR images differ")
     print(f"{suite.upper()} HDR image matches on disk and embedded: {disk[0]}")

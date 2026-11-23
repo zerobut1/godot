@@ -91,11 +91,14 @@ class YutrelRayTracingScene {
 	bool has_instances = false;
 	bool tables_valid = false;
 	uint64_t scene_hash = 0;
-	RID uniform_set;
-	RID set_shader;
+	struct ShaderSet {
+		RID shader;
+		RID set;
+	};
+	LocalVector<ShaderSet> shader_sets;
 
 	bool _update_arena(const Vector<RID> &p_meshes);
-	void _free_set();
+	void _free_sets();
 
 public:
 	static constexpr uint32_t MAX_TEXTURES = 512;

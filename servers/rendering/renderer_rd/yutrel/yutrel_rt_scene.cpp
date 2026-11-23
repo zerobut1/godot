@@ -425,7 +425,7 @@ bool YutrelRayTracingScene::update(const RenderDataRD &p_data, YutrelMaterialBri
 		return false;
 	}
 	if (textures != frame_materials.table) {
-		_free_set();
+		_free_sets();
 		textures = frame_materials.table;
 	}
 	scene_hash = hash;
@@ -433,20 +433,28 @@ bool YutrelRayTracingScene::update(const RenderDataRD &p_data, YutrelMaterialBri
 	return true;
 }
 
-void YutrelRayTracingScene::_free_set() {
+void YutrelRayTracingScene::_free_sets() {
 	RD *rd = RD::get_singleton();
-	if (uniform_set.is_valid() && rd->uniform_set_is_valid(uniform_set)) {
-		rd->free_rid(uniform_set);
+	for (const ShaderSet &entry : shader_sets) {
+		if (rd->uniform_set_is_valid(entry.set)) {
+			rd->free_rid(entry.set);
+		}
 	}
-	uniform_set = RID();
+	shader_sets.clear();
 }
 
 RID YutrelRayTracingScene::get_uniform_set(RID p_shader) {
 	RD *rd = RD::get_singleton();
-	if (set_shader == p_shader && uniform_set.is_valid() && rd->uniform_set_is_valid(uniform_set)) {
-		return uniform_set;
+	// DDGI and RTAO share the TLAS in the same frame. Keep both descriptor sets
+	// alive, pruning dependencies invalidated by shader reloads or buffer growth.
+	for (uint32_t i = shader_sets.size(); i > 0; --i) {
+		const ShaderSet &entry = shader_sets[i - 1];
+		if (!rd->uniform_set_is_valid(entry.set)) {
+			shader_sets.remove_at_unordered(i - 1);
+		} else if (entry.shader == p_shader) {
+			return entry.set;
+		}
 	}
-	_free_set();
 	Vector<RD::Uniform> bindings = { RD::Uniform(RD::UNIFORM_TYPE_ACCELERATION_STRUCTURE, 0, tlas) };
 	for (RID buffer : { vertices.get_buffer(), indices.get_buffer(), instances.get_buffer(), surfaces.get_buffer(), materials.get_buffer(), material_textures.get_buffer() }) {
 		bindings.push_back(RD::Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, bindings.size(), buffer));
@@ -460,13 +468,15 @@ RID YutrelRayTracingScene::get_uniform_set(RID p_shader) {
 		images.append_id(i < textures.size() ? textures[i] : textures[0]);
 	}
 	bindings.push_back(images);
-	set_shader = p_shader;
-	uniform_set = rd->uniform_set_create(bindings, p_shader, 1);
-	return uniform_set;
+	const RID set = rd->uniform_set_create(bindings, p_shader, 1);
+	if (set.is_valid()) {
+		shader_sets.push_back({ p_shader, set });
+	}
+	return set;
 }
 
 YutrelRayTracingScene::~YutrelRayTracingScene() {
-	_free_set();
+	_free_sets();
 	if (tlas.is_valid()) {
 		RD::get_singleton()->free_rid(tlas);
 	}

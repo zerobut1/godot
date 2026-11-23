@@ -55,6 +55,7 @@ public:
 	RID shadow_mask;
 	RID path_tracer_accum;
 	DDGIPass::History ddgi_history;
+	RTAOPass::History rtao_history;
 	uint64_t pt_state_hash = 0;
 	uint32_t pt_sample_count = 0;
 
@@ -79,6 +80,7 @@ public:
 		pt_sample_count = 0;
 		pt_state_hash = 0;
 		ddgi_history.clear();
+		rtao_history.clear();
 	}
 };
 
@@ -231,8 +233,13 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	ERR_FAIL_COND(rd->buffer_update(frame_buffer, 0, sizeof(frame), &frame) != OK);
 
 	const YutrelEnvironmentSettings environment = YutrelEnvironmentSettings::get(p_render_data->environment);
+	const Ref<YutrelRenderBufferData> custom = p_render_data->render_buffers->get_custom_data(SNAME("Yutrel"));
+	if (!environment.rtao_enabled && custom->rtao_history.ao_texture.is_valid()) {
+		custom->rtao_history.clear();
+	}
 	LocalVector<DirectionalLightItem> lights = DirectionalLightPass::collect(*p_render_data);
 	if (settings.debug_view == DebugViewMode::PATH_TRACER) {
+		custom->rtao_history.has_history = false;
 		ERR_FAIL_COND(!output_pass.prepare() || !ibl_pass.prepare_environment(environment));
 #ifdef TOOLS_ENABLED
 		if (Engine::get_singleton()->is_editor_hint()) {
@@ -241,7 +248,6 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 			ERR_FAIL_COND(!base_pass.render(targets, frame_buffer, p_default_color.srgb_to_linear()));
 		}
 #endif
-		const Ref<YutrelRenderBufferData> custom = p_render_data->render_buffers->get_custom_data(SNAME("Yutrel"));
 		if (custom->path_tracer_accum.is_null()) {
 			custom->path_tracer_accum = p_render_data->render_buffers->create_texture(SNAME("Yutrel"), SNAME("PathTracerAccum"),
 					RD::DATA_FORMAT_R32G32B32A32_SFLOAT, RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT);
@@ -279,17 +285,25 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		Math::sin(environment.sky_rotation_radians),
 		Math::cos(environment.sky_rotation_radians),
 	};
-	const Ref<YutrelRenderBufferData> custom = p_render_data->render_buffers->get_custom_data(SNAME("Yutrel"));
 	YutrelDDGISettings volume;
 	const bool has_volume = YutrelDDGISettings::get(YutrelRayTracingScene::get_scenario(*p_render_data), volume);
 	const bool needs_ddgi = has_volume && volume.size[volume.size.min_axis_index()] > 0 &&
 			(final || lighting_only || indirect_only) && YutrelRayTracingScene::is_supported(4);
+	const bool rtao_mode = settings.debug_view == DebugViewMode::RTAO;
+	const bool needs_rtao = environment.rtao_enabled && (final || lighting_only || indirect_only || rtao_mode) &&
+			base_pass.has_draws() && YutrelRayTracingScene::is_supported(2);
 	const bool ibl_ready = (needs_ddgi || draw_lighting || draw_sky || draw_transparent) && ibl_pass.prepare_environment(environment);
-	const bool ddgi_ready = needs_ddgi && ibl_ready && rt_scene.update(*p_render_data, material_bridge) &&
+	const bool rt_ready = (needs_ddgi || needs_rtao) && rt_scene.update(*p_render_data, material_bridge);
+	const bool ddgi_ready = needs_ddgi && ibl_ready && rt_ready &&
 			ddgi_pass.update(custom->ddgi_history, volume, lights, ibl_pass, sky_params, rt_scene, p_render_data->scene_data->time_step);
 	if (!has_volume && custom->ddgi_history.bindings.volume.is_valid()) {
 		custom->ddgi_history.clear();
 	}
+	const bool rtao_ready = needs_rtao && rt_ready && rtao_pass.render(custom->rtao_history, targets, frame_buffer, frame, environment, rt_scene, p_render_data->scene_data->time_step);
+	if (!rtao_ready) {
+		custom->rtao_history.has_history = false;
+	}
+	targets.ao_texture = rtao_ready ? custom->rtao_history.ao_texture : rtao_pass.get_fallback_ao();
 	DDGIBindings bindings;
 	if (ddgi_ready) {
 		bindings = custom->ddgi_history.bindings;

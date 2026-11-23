@@ -75,6 +75,18 @@ public:
 	void set_exposure(float p_exposure);
 	float get_exposure() const { return exposure; }
 
+	void set_rtao_enabled(bool p_enabled);
+	bool get_rtao_enabled() const { return rtao_enabled; }
+
+	void set_rtao_radius(float p_radius);
+	float get_rtao_radius() const { return rtao_radius; }
+
+	void set_rtao_intensity(float p_intensity);
+	float get_rtao_intensity() const { return rtao_intensity; }
+
+	void set_rtao_samples(int p_samples);
+	int get_rtao_samples() const { return rtao_samples; }
+
 	PackedStringArray get_configuration_warnings() const override;
 
 protected:
@@ -90,6 +102,10 @@ private:
 	float sky_rotation = 0.0f;
 	ToneMapping tone_mapping = TONE_MAPPING_AGX_PUNCHY;
 	float exposure = 1.0f;
+	bool rtao_enabled = true;
+	float rtao_radius = 1.0f;
+	float rtao_intensity = 1.0f;
+	int rtao_samples = 1;
 	Ref<Environment> internal_environment;
 	Ref<Environment> previous_environment;
 	Ref<World3D> world;

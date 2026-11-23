@@ -51,6 +51,8 @@ func mesh_instance(mesh: Mesh, location: Vector3, metallic: float, roughness: fl
 
 
 func white_furnace() -> void:
+	# Isolate the BRDF furnace from occlusion between neighboring spheres.
+	sky.rtao_enabled = false
 	var spheres: Array[MeshInstance3D] = []
 	var sphere := SphereMesh.new()
 	sphere.radius = 0.44
@@ -91,6 +93,7 @@ func white_furnace() -> void:
 			1 - floori(float(i) / 5.0), ROUGHNESSES[i % 5], counts[i], maxima[i]])
 		check(counts[i] > 5000 and maxima[i] < 0.02, "White Furnace sphere %d" % i)
 		spheres[i].free()
+	sky.rtao_enabled = true
 
 
 func radiance(dir: Vector3) -> Color:
