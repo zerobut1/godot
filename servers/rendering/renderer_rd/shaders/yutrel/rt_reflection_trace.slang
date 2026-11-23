@@ -18,7 +18,7 @@ struct DirectionalLight
 [[vk::binding(1, 0)]] Texture2D<float4> gbuffer_b;
 [[vk::binding(2, 0)]] Texture2D<float> scene_depth;
 [[vk::binding(3, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> raw_reflection;
-[[vk::binding(4, 0)]] Texture2D<float4> gbuffer_a;
+[[vk::binding(4, 0)]] StructuredBuffer<uint> ray_list;
 [[vk::binding(5, 0)]] Texture2D<float4> gbuffer_c;
 [[vk::binding(6, 0)]] StructuredBuffer<DirectionalLight> lights;
 [[vk::binding(7, 0)]] TextureCube<float4> source_cubemap;
@@ -34,23 +34,24 @@ struct DirectionalLight
 struct TraceParams
 {
 	int2 full_size;
-	uint pixel_scale;
-	float max_roughness;
-	uint samples, frame_index, has_tlas, light_count;
+	uint pixel_scale, dispatch_rows;
+	uint samples, frame_index, light_count;
 	float sky_intensity, sin_rot, cos_rot, max_mip;
 };
 [[vk::push_constant]] ConstantBuffer<TraceParams> params;
 
-float3 incoming_radiance(float3 origin, float3 dir, float t_min, out float hit_dist)
+float3 incoming_radiance(float3 origin, float3 dir, float t_min, float r, float2 ray_cone, out float hit_dist)
 {
 	RTHit hit;
-	if (!trace_surface(origin, dir, t_min, 1e20, hit))
+	if (!trace_surface(origin, dir, t_min, 1e20, hit, true, false, ray_cone, r >= 0.15))
 	{
 		hit_dist = 1e4;
 		float3 sky_dir = inverse_sky_rotation(dir, params.sin_rot, params.cos_rot);
 		return source_cubemap.SampleLevel(cube_sampler, sky_dir, 0).rgb * params.sky_intensity;
 	}
 	hit_dist = min(hit.t, 65504.0);
+	if (!hit.is_front_face && !hit.is_double_sided)
+		return 0;
 	if (hit.is_unlit)
 		return hit.emissive + hit.base_color;
 	float3 N = dot(hit.shading_normal, -dir) > MIN_N_DOT_V ? hit.shading_normal : hit.geometric_normal;
@@ -76,45 +77,72 @@ float3 incoming_radiance(float3 origin, float3 dir, float t_min, out float hit_d
 	DDGIResources probes = { irradiance, distance_atlas, probe_data, linear_clamp };
 	float visibility;
 	float3 probe_diffuse;
-	radiance += diffuse * indirect_environment(hit.world_pos, N, dir, sky, sh, volume, probes, visibility, probe_diffuse);
-	float3 R = inverse_sky_rotation(reflect(dir, N), params.sin_rot, params.cos_rot);
-	float mip = params.max_mip * roughness * (2 - roughness);
-	return radiance + prefilter_cubemap.SampleLevel(cube_sampler, R, mip).rgb * f0 * params.sky_intensity * visibility;
+	float3 indirect = indirect_environment(hit.world_pos, N, dir, sky, sh, volume, probes, visibility, probe_diffuse);
+	if (hit.metallic > 0.01)
+	{
+		float3 R = inverse_sky_rotation(reflect(dir, N), params.sin_rot, params.cos_rot);
+		float mip = params.max_mip * roughness * (2 - roughness);
+		radiance += prefilter_cubemap.SampleLevel(cube_sampler, R, mip).rgb * f0 * params.sky_intensity * visibility;
+	}
+	else
+	{
+		// Reuse low-frequency incident light for the dielectric Fresnel term.
+		// Dropping it would darken white surfaces reflected at grazing angles.
+		diffuse += fresnel;
+	}
+	return radiance + diffuse * indirect;
+}
+
+float ray_differential(int2 pixel, int2 axis, float3 world, float3 R, float footprint)
+{
+	int2 local = pixel - int2(frame.viewport_origin);
+	int2 neighbor = pixel + (any(local + axis >= params.full_size) ? -axis : axis);
+	if (any(neighbor < int2(frame.viewport_origin)))
+		return 0;
+	float z = scene_depth.Load(int3(neighbor, 0));
+	float3 p = reconstruct_world_position(neighbor + 0.5, z, frame);
+	if (z <= 0 || length(p - world) > 16 * footprint)
+		return 0;
+	float3 N = reflection_normal(gbuffer_b.Load(int3(neighbor, 0)));
+	return length(reflect(-reflection_view(p, frame), N) - R);
 }
 
 [shader("compute")]
-[numthreads(8, 8, 1)]
-void compute_main(uint3 tid : SV_DispatchThreadID)
+[numthreads(64, 1, 1)]
+void compute_main(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
 {
-	uint width, height;
-	raw_reflection.GetDimensions(width, height);
-	if (any(tid.xy >= uint2(width, height)))
+	uint index = (group.x * params.dispatch_rows + group.y) * 64 + lane;
+	if (index >= ray_list[0])
 		return;
-	int2 pixel = rtao_frame_pixel(int2(tid.xy), params.pixel_scale, params.full_size, frame.viewport_origin);
+	uint packed = ray_list[index + 1];
+	uint2 texel = uint2(packed & 0xffffu, packed >> 16);
+	int2 pixel = reflection_pixel(int2(texel), params.pixel_scale, params.frame_index, params.full_size) + int2(frame.viewport_origin);
 	int3 coord = int3(pixel, 0);
 	float depth = scene_depth.Load(coord);
 	float r = gbuffer_c.Load(coord).r;
-	if (depth <= 0 || params.has_tlas == 0 || gbuffer_a.Load(coord).a == 0 || r >= params.max_roughness)
-	{
-		raw_reflection[tid.xy] = float4(0, 0, 0, -1);
-		return;
-	}
 	float3 world = reconstruct_world_position(pixel + 0.5, depth, frame);
 	float3 N = reflection_normal(gbuffer_b.Load(coord));
 	float3 Ng = geometric_normal(scene_depth, frame, pixel, params.full_size, depth, world, N);
 	float3 V = reflection_view(world, frame);
+	float footprint = max(length(reconstruct_world_position(pixel + float2(0.5, 1.5), depth, frame) - world), 1e-7);
+	float pixel_spread = frame.camera_forward.w != 0 ? 0 : footprint / max(length(frame.camera_position.xyz - world), 1e-5);
+	float3 R = reflect(-V, N);
+	float curvature = max(ray_differential(pixel, int2(1, 0), world, R, footprint), ray_differential(pixel, int2(0, 1), world, R, footprint));
+	float2 ray_cone = float2(footprint, max(pixel_spread, curvature) + r * r);
 	float3 origin = offset_ray_origin(world, Ng);
 	float t_min = max(0.002, length(frame.camera_position.xyz - world) * 0.0005);
 	float3 T = normalize(cross(abs(N.z) < 0.99 ? float3(0, 0, 1) : float3(0, 1, 0), N));
 	float3 B = cross(N, T);
-	uint seed = hash_pixel(tid.y * width + tid.x);
+	uint width, height;
+	raw_reflection.GetDimensions(width, height);
+	uint seed = hash_pixel(texel.y * width + texel.x);
 	float2 rotation = float2(seed & 65535u, seed >> 16) / 65536.0;
-	uint count = r < 0.04 ? 1 : params.samples;
+	uint count = r < MIRROR_ROUGHNESS ? 1 : params.samples;
 	float4 sum = 0;
 	for (uint i = 0; i < count; ++i)
 	{
 		float3 H = N;
-		if (r >= 0.04)
+		if (r >= MIRROR_ROUGHNESS)
 		{
 			float2 u = frac(rotation + float(params.frame_index * count + i) * float2(0.754877666, 0.569840291));
 			u.x *= 0.85;
@@ -125,9 +153,9 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 		// Fold below-horizon samples above the geometric surface, retaining unit sample weight.
 		dir -= 2 * min(dot(dir, Ng), 0.0) * Ng;
 		float distance;
-		float3 radiance = incoming_radiance(origin, dir, t_min, distance);
+		float3 radiance = incoming_radiance(origin, dir, t_min, r, ray_cone, distance);
 		sum += float4(radiance, distance);
 	}
 	float4 avg = sum / count;
-	raw_reflection[tid.xy] = float4(clamp(sanitize_finite(avg.rgb), 0, 65504), avg.a);
+	raw_reflection[texel] = float4(clamp(sanitize_finite(avg.rgb), 0, 65504), avg.a);
 }

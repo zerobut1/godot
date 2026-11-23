@@ -39,6 +39,8 @@ func run(spirv_path: String) -> bool:
 	frame.resize(44)
 	for i in [0, 5, 10, 15, 16, 21, 26, 31]:
 		frame[i] = 1
+	frame[34] = 2
+	frame[38] = 1
 	frame[40] = origin.x
 	frame[41] = origin.y
 	frame[42] = 1.0 / full.x
@@ -56,20 +58,24 @@ func run(spirv_path: String) -> bool:
 		texture(filled(padded, Image.FORMAT_RGBAH, normal), RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT),
 		texture(filled(padded, Image.FORMAT_RF, Color.WHITE), RenderingDevice.DATA_FORMAT_R32_SFLOAT),
 		texture(radiance, RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT),
-		texture(filled(half_size, Image.FORMAT_RF, Color.WHITE), RenderingDevice.DATA_FORMAT_R32_SFLOAT),
 		texture(filled(half_size, Image.FORMAT_RGBAH, normal), RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT),
+		texture(radiance, RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT),
 		texture(filled(full, Image.FORMAT_RGBAH, Color.TRANSPARENT), RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT, true),
 		texture(material, RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM),
 		texture(shaded, RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM),
+		ubo,
+		texture(filled(full, Image.FORMAT_RGBAH, Color.TRANSPARENT), RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT),
+		texture(filled(full, Image.FORMAT_RGBAH, Color.TRANSPARENT), RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT),
+		texture(filled(full, Image.FORMAT_RGBAH, Color.TRANSPARENT), RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT, true),
 	]
 	var uniforms: Array[RDUniform] = []
 	for i in resources.size():
 		var u := RDUniform.new()
 		u.binding = i
 		u.uniform_type = RenderingDevice.UNIFORM_TYPE_TEXTURE
-		if i == 0:
+		if i == 0 or i == 9:
 			u.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
-		elif i == 6:
+		elif i == 6 or i == 12:
 			u.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
 		u.add_id(resources[i])
 		uniforms.append(u)
@@ -77,7 +83,9 @@ func run(spirv_path: String) -> bool:
 	var list := rd.compute_list_begin()
 	rd.compute_list_bind_compute_pipeline(list, pipeline)
 	rd.compute_list_bind_uniform_set(list, bindings, 0)
-	rd.compute_list_set_push_constant(list, PackedFloat32Array([0.6]).to_byte_array(), 4)
+	var params := PackedInt32Array([0, 1, 0, 0, 0]).to_byte_array() # Phase (1,1) clamps at both odd edges.
+	params.encode_float(0, 0.6)
+	rd.compute_list_set_push_constant(list, params, params.size())
 	rd.compute_list_dispatch(list, 1, 1, 1)
 	rd.compute_list_end()
 	rd.submit()

@@ -36,14 +36,24 @@ func resolution(half_res: bool) -> void:
 	sky.rt_reflection_half_resolution = half_res
 	var mirror := await snapshot(5)
 	var stages := await profile()
-	check(stages.has("Yutrel RT Reflection Denoise") and stages.has("Yutrel RT Reflection Upsample") == half_res, "Only half resolution dispatches the joint upsampler")
+	check(stages.has("Yutrel RT Reflection Classify"), "Classify builds the active reflection ray list")
+	var reproject := stages.find("Yutrel RT Reflection Reproject")
+	var prefilter := stages.find("Yutrel RT Reflection Prefilter")
+	var resolve := stages.find("Yutrel RT Reflection Temporal")
+	check(reproject >= 0 and prefilter > reproject and resolve > prefilter, "Glossy temporal resolve follows reprojection and spatial prefiltering")
+	check(stages.has("Yutrel RT Reflection Upsample") == half_res, "Only half resolution dispatches the joint upsampler")
 	var red := probe(mirror)
 	print("RT_REFLECTION MIRROR half=%s radiance=%s" % [half_res, red])
 	check(camera.is_position_behind(panel.global_position) and red.r > 2.95 and red.g < 0.005, "Mirror sees the HDR panel behind the camera")
 	var clear := probe(mirror, -2)
 	check(clear.r > 0.1 and absf(clear.r - clear.g) < 0.001, "Mirror sees the sky beside the panel")
 	sky.rt_reflection_samples = 4
-	check((await snapshot()).get_data() == mirror.get_data(), "Mirror is deterministic across sample counts")
+	check((await snapshot(5)).get_data() == mirror.get_data(), "Mirror is deterministic across sample counts")
+	var facing := panel.rotation
+	panel.rotation.y += PI
+	var backface := probe(await snapshot())
+	check(maxf(backface.r, maxf(backface.g, backface.b)) < 0.005, "A single-sided backface blocks the sky and contributes no emission")
+	panel.rotation = facing
 	sky.rt_reflection_enabled = false
 	var baseline := await snapshot()
 	check(absf(probe(baseline).r - clear.r) < 0.002, "Disabling RT restores sky IBL")
@@ -130,6 +140,105 @@ func moving_camera() -> void:
 	panel.position.x = 0
 
 
+func curved_reflectors() -> void:
+	wall.hide()
+	var sphere := MeshInstance3D.new()
+	var mesh := SphereMesh.new()
+	mesh.radius = 1.25
+	mesh.height = 2.5
+	sphere.mesh = mesh
+	var metal := StandardMaterial3D.new()
+	metal.metallic = 1
+	metal.roughness = 0.02
+	sphere.material_override = metal
+	rig.add_child(sphere)
+
+	# A band-limited pattern on a large off-screen panel makes every sub-pixel
+	# in the central sphere patch see a different, deterministic radiance.
+	var pattern := Image.create_empty(256, 256, false, Image.FORMAT_RGBA8)
+	for y in 256:
+		for x in 256:
+			var v := 0.5 + 0.45 * sin(TAU * (7.0 * x + 5.0 * y) / 256.0)
+			pattern.set_pixel(x, y, Color(v, v, v))
+	pattern.generate_mipmaps()
+	var emitter := StandardMaterial3D.new()
+	emitter.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	emitter.albedo_texture = ImageTexture.create_from_image(pattern)
+	panel.material_override = emitter
+	panel.mesh.size = Vector2(20, 20)
+	sky.rt_reflection_half_resolution = false
+	var native := await snapshot(5)
+	sky.rt_reflection_half_resolution = true
+	var half := await snapshot(4)
+	var center := Vector2i(camera.unproject_position(sphere.global_position))
+	var max_error := 0.0
+	var detail := 0.0
+	var patch := Rect2i(center - Vector2i(12, 12), Vector2i(24, 24))
+	for y in range(patch.position.y, patch.end.y):
+		for x in range(patch.position.x, patch.end.x):
+			max_error = maxf(max_error, absf(native.get_pixel(x, y).r - half.get_pixel(x, y).r))
+			if x % 2 == 0:
+				detail += absf(native.get_pixel(x, y).r - native.get_pixel(x + 1, y).r)
+	detail /= patch.get_area() / 2.0
+	print("RT_REFLECTION CURVED MIRROR within_quad_gradient=%.5f max_native_error=%.5f" % [detail, max_error])
+	check(detail > 0.02 and max_error < 0.005, "All four mirror phases reconstruct native detail on a curved surface")
+
+	metal.roughness = 0.12
+	var glossy := await snapshot(36)
+	var next := await snapshot(1)
+	sky.rt_reflection_half_resolution = false
+	sky.rt_reflection_samples = 4
+	var reference := await snapshot(40)
+	var spatial_sq := 0.0
+	var frame_sq := 0.0
+	var signal_sq := 0.0
+	for y in range(patch.position.y, patch.end.y):
+		for x in range(patch.position.x, patch.end.x):
+			var p := Vector2i(x, y)
+			var v := glossy.get_pixelv(p).r
+			var residual := v - reference.get_pixelv(p).r
+			# High-pass the difference from the converged 4-spp native image.
+			var neighbor_error := 0.0
+			for offset in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+				neighbor_error += glossy.get_pixelv(p + offset).r - reference.get_pixelv(p + offset).r
+			spatial_sq += pow(residual - neighbor_error * 0.25, 2)
+			frame_sq += pow(v - next.get_pixelv(p).r, 2)
+			signal_sq += residual * residual
+	var spatial := sqrt(spatial_sq / patch.get_area())
+	var temporal := sqrt(frame_sq / patch.get_area())
+	var rmse := sqrt(signal_sq / patch.get_area())
+	print("RT_REFLECTION CURVED GLOSSY spatial_rms=%.5f frame_rms=%.5f native_rmse=%.5f" % [spatial, temporal, rmse])
+	check(spatial < 0.035 and temporal < 0.035 and rmse < 0.12, "Converged 1-spp half-resolution glossy reflection preserves spatial signal with low noise")
+	# Each reflected pixel covers many checks. MIP 0/1 retains the pattern,
+	# whereas cone LOD should select its constant gray mip.
+	var checks := Image.create_empty(64, 64, false, Image.FORMAT_RGBA8)
+	for y in 64:
+		for x in 64:
+			checks.set_pixel(x, y, Color.WHITE if ((x >> 3) ^ (y >> 3)) & 1 else Color.BLACK)
+	checks.generate_mipmaps()
+	emitter.albedo_texture = ImageTexture.create_from_image(checks)
+	emitter.uv1_scale = Vector3(256, 256, 1)
+	metal.roughness = 0.02
+	sky.rt_reflection_half_resolution = true
+	var minified := await snapshot(5)
+	var low := INF
+	var high := -INF
+	for y in range(patch.position.y, patch.end.y):
+		for x in range(patch.position.x, patch.end.x):
+			var value := minified.get_pixel(x, y).r
+			low = minf(low, value)
+			high = maxf(high, value)
+	print("RT_REFLECTION CONE min=%.5f max=%.5f" % [low, high])
+	check(low > 0.1 and high < 0.9 and high - low < 0.01, "Ray cones integrate the minified checker on a curved mirror")
+	digest.update(half.get_data())
+	digest.update(glossy.get_data())
+	sky.rt_reflection_samples = 1
+	panel.material_override = null
+	panel.mesh.size = Vector2(1.5, 1.2)
+	sphere.free()
+	wall.show()
+
+
 func furnace() -> void:
 	wall.hide()
 	panel.hide()
@@ -141,7 +250,11 @@ func furnace() -> void:
 	mat.roughness = 0.35
 	sphere.material_override = mat
 	rig.add_child(sphere)
-	var white := await snapshot(20)
+	sky.rt_reflection_half_resolution = true
+	var white: Array[Image] = []
+	for r in [0.02, 0.12, 0.35]:
+		mat.roughness = r
+		white.append(await snapshot(32))
 	sky.sky_intensity = 0
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	var mask := await snapshot()
@@ -150,12 +263,14 @@ func furnace() -> void:
 	for y in view.size.y:
 		for x in view.size.x:
 			if mask.get_pixel(x, y).r > 0.5:
-				var c := white.get_pixel(x, y)
 				samples += 1
-				error = maxf(error, maxf(absf(1 - c.r), maxf(absf(1 - c.g), absf(1 - c.b))))
+				for image in white:
+					var c := image.get_pixel(x, y)
+					error = maxf(error, maxf(absf(1 - c.r), maxf(absf(1 - c.g), absf(1 - c.b))))
 	print("RT_REFLECTION FURNACE pixels=%d max_linear_error=%.6f" % [samples, error])
 	check(samples > 500 and error < 0.02, "Isolated metallic sphere conserves white-furnace energy with RT enabled")
 	sphere.free()
+	sky.rt_reflection_half_resolution = false
 	panel.show()
 	wall.show()
 
@@ -247,6 +362,11 @@ func hit_lighting() -> void:
 	var occluded := probe(await snapshot(20))
 	check(occluded.r < 0.005, "DDGI sky visibility attenuates specular at the metallic hit")
 	volume.free()
+	white.metallic = 0
+	white.metallic_specular = 0.5
+	panel.rotation.y += deg_to_rad(70)
+	var dielectric := probe(await snapshot(8))
+	check(absf(dielectric.r - 1) < 0.02, "A grazing dielectric hit preserves white-furnace energy")
 
 
 func run() -> void:
@@ -279,15 +399,17 @@ func run() -> void:
 	await snapshot()
 	if OS.has_environment("YUTREL_RT_REFLECTION_RELOAD_MARKER"):
 		check(preload("res://test_region.gd").new().run(OS.get_environment("YUTREL_REFLECTION_REGION_SPIRV")), "Non-zero render-region origin and odd bottom-right texel")
-		var before := await snapshot()
+		var before := await snapshot(5)
 		print("RT_REFLECTION READY FOR RELOAD")
 		while not FileAccess.file_exists(OS.get_environment("YUTREL_RT_REFLECTION_RELOAD_MARKER")):
 			await create_timer(0.1).timeout
-		check((await snapshot()).get_data() == before.get_data(), "Shader hot reload preserves the mirror")
+		check((await snapshot(5)).get_data() == before.get_data(), "Shader hot reload preserves the mirror")
 	digest.start(HashingContext.HASH_SHA256)
 	await resolution(true)
+	await moving_camera()
 	await resolution(false)
 	await moving_camera()
+	await curved_reflectors()
 	await furnace()
 	await hit_lighting()
 	print("RT_REFLECTION IMAGE ", digest.finish().hex_encode())

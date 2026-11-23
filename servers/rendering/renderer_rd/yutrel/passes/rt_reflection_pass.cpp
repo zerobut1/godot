@@ -66,7 +66,8 @@ RTReflectionPass::~RTReflectionPass() {
 }
 
 void RTReflectionPass::History::clear() {
-	for (RID *rid : { &reflection_texture, &raw_reflection, &filtered_reflection, &hit_dist[0], &hit_dist[1], &history[0], &history[1], &prev_depth[0], &prev_depth[1], &prev_normal_roughness[0], &prev_normal_roughness[1], &prev_frame_buffer }) {
+	for (RID *rid : { &raw_reflection, &reprojected, &variance, &average, &filtered, &history[0], &history[1], &guide[0], &guide[1], &stats[0], &stats[1],
+				 &full_reflection[0], &full_reflection[1], &mirror_guide[0], &mirror_guide[1], &prev_frame_buffer, &ray_list, &indirect_buffer }) {
 		if (rid->is_valid()) {
 			RD::get_singleton()->free_rid(*rid);
 			*rid = RID();
@@ -79,22 +80,34 @@ void RTReflectionPass::History::clear() {
 	history_slot = 0;
 }
 
-bool RTReflectionPass::History::ensure_size(Size2i p_full_size, Size2i p_work_size) {
-	if (full_size == p_full_size && work_size == p_work_size) {
+bool RTReflectionPass::History::ensure_size(Size2i p_full_size, Size2i p_work_size, bool p_half_res) {
+	if (full_size == p_full_size && work_size == p_work_size && full_reflection[0].is_valid() == p_half_res) {
 		return true;
 	}
 	clear();
-	reflection_texture = create_image(p_full_size, RD::DATA_FORMAT_R16G16B16A16_SFLOAT, "Yutrel RT Reflection");
-	raw_reflection = create_image(p_work_size, RD::DATA_FORMAT_R16G16B16A16_SFLOAT, "Yutrel RT Reflection Raw");
-	filtered_reflection = create_image(p_work_size, RD::DATA_FORMAT_R16G16B16A16_SFLOAT, "Yutrel RT Reflection Filtered");
-	prev_frame_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(prev_frame));
-	bool valid = reflection_texture.is_valid() && raw_reflection.is_valid() && filtered_reflection.is_valid() && prev_frame_buffer.is_valid();
+	RD *rd = RD::get_singleton();
+	const uint64_t list_bytes = (uint64_t(p_work_size.x) * p_work_size.y + 1) * sizeof(uint32_t);
+	ERR_FAIL_COND_V(list_bytes > UINT32_MAX || p_work_size.x > 65536 || p_work_size.y > 65536, false);
+	ray_list = rd->storage_buffer_create(list_bytes);
+	indirect_buffer = rd->storage_buffer_create(3 * sizeof(uint32_t), {}, RD::STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT);
+	constexpr RD::DataFormat rgba = RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
+	raw_reflection = create_image(p_work_size, rgba, "Yutrel RT Reflection Raw");
+	reprojected = create_image(p_work_size, rgba, "Yutrel RT Reflection Reprojected");
+	filtered = create_image(p_work_size, rgba, "Yutrel RT Reflection Prefiltered");
+	average = create_image((p_work_size + Size2i(7, 7)) / 8, rgba, "Yutrel RT Reflection Tile Average");
+	variance = create_image(p_work_size, RD::DATA_FORMAT_R16_SFLOAT, "Yutrel RT Reflection Variance");
+	prev_frame_buffer = rd->uniform_buffer_create(sizeof(prev_frame));
+	bool valid = raw_reflection.is_valid() && reprojected.is_valid() && filtered.is_valid() && average.is_valid() && variance.is_valid() && prev_frame_buffer.is_valid() && ray_list.is_valid() && indirect_buffer.is_valid();
 	for (int i = 0; i < 2; i++) {
-		history[i] = create_image(p_work_size, RD::DATA_FORMAT_R16G16B16A16_SFLOAT, "Yutrel RT Reflection History");
-		prev_depth[i] = create_image(p_work_size, RD::DATA_FORMAT_R32_SFLOAT, "Yutrel RT Reflection Depth");
-		prev_normal_roughness[i] = create_image(p_work_size, RD::DATA_FORMAT_R16G16B16A16_UNORM, "Yutrel RT Reflection Normal");
-		hit_dist[i] = create_image(p_work_size, RD::DATA_FORMAT_R16_SFLOAT, "Yutrel RT Reflection Hit Distance");
-		valid = valid && hit_dist[i].is_valid() && history[i].is_valid() && prev_depth[i].is_valid() && prev_normal_roughness[i].is_valid();
+		history[i] = create_image(p_work_size, rgba, "Yutrel RT Reflection History");
+		guide[i] = create_image(p_work_size, rgba, "Yutrel RT Reflection Surface");
+		stats[i] = create_image(p_work_size, RD::DATA_FORMAT_R16G16_SFLOAT, "Yutrel RT Reflection Variance and Count");
+		valid = valid && history[i].is_valid() && guide[i].is_valid() && stats[i].is_valid();
+		if (p_half_res) {
+			full_reflection[i] = create_image(p_full_size, rgba, "Yutrel RT Reflection Full Resolution");
+			mirror_guide[i] = create_image(p_full_size, rgba, "Yutrel RT Reflection Mirror Surface");
+			valid = valid && full_reflection[i].is_valid() && mirror_guide[i].is_valid();
+		}
 	}
 	if (!valid) {
 		clear();
@@ -112,12 +125,14 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 	const Size2i full_size = p_targets.region.size;
 	const Size2i work_size = half_res ? Size2i((full_size.x + 1) / 2, (full_size.y + 1) / 2) : full_size;
 	const uint32_t pixel_scale = half_res ? 2 : 1;
+	const bool classify_ready = classify.prepare("rt_reflection_classify.slang");
 	const bool trace_ready = trace.prepare("rt_reflection_trace.slang");
 	const bool temporal_ready = temporal.prepare("rt_reflection_temporal.slang");
-	const bool denoise_ready = denoise.prepare("rt_reflection_denoise.slang");
+	const bool reproject_ready = reproject.prepare("rt_reflection_reproject.slang");
+	const bool prefilter_ready = prefilter.prepare("rt_reflection_prefilter.slang");
 	const bool upsample_ready = !half_res || upsample.prepare("rt_reflection_upsample.slang");
-	ERR_FAIL_COND_V(!trace_ready || !temporal_ready || !denoise_ready || !upsample_ready || !h.ensure_size(full_size, work_size), false);
-	const uint64_t version = trace.shader.get_version() + temporal.shader.get_version() + denoise.shader.get_version() + (half_res ? upsample.shader.get_version() : 0);
+	ERR_FAIL_COND_V(!classify_ready || !trace_ready || !temporal_ready || !reproject_ready || !prefilter_ready || !upsample_ready || !h.ensure_size(full_size, work_size, half_res), false);
+	const uint64_t version = classify.shader.get_version() + trace.shader.get_version() + temporal.shader.get_version() + reproject.shader.get_version() + prefilter.shader.get_version() + (half_res ? upsample.shader.get_version() : 0);
 	LocalVector<DirectionalLightParams> lights;
 	uint64_t lighting_hash = rt_hash_bytes(5381, &p_sky, sizeof(p_sky));
 	lighting_hash = rt_hash_bytes(lighting_hash, &p_environment.linear_sky_color, sizeof(Color));
@@ -144,12 +159,15 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 	const Uniform frame(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, p_frame_buffer);
 	const Uniform normal(RD::UNIFORM_TYPE_TEXTURE, 1, p_targets.gbuffer_b);
 	const Uniform depth(RD::UNIFORM_TYPE_TEXTURE, 2, p_targets.scene_depth);
+	const Uniform raw(RD::UNIFORM_TYPE_IMAGE, 3, h.raw_reflection);
+	const Uniform roughness(RD::UNIFORM_TYPE_TEXTURE, 5, p_targets.gbuffer_c);
+	const RID classify_set = sets->get_cache(classify.shader.get_shader(), 0, frame, depth, raw,
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, p_targets.gbuffer_a), roughness,
+			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 6, h.ray_list), Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 7, h.indirect_buffer));
 	const RID scene_set = p_scene.get_uniform_set(trace.shader.get_shader());
 	const RID linear_clamp = RendererRD::MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
-	const RID trace_set = sets->get_cache(trace.shader.get_shader(), 0, frame, normal, depth,
-			Uniform(RD::UNIFORM_TYPE_IMAGE, 3, h.raw_reflection),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, p_targets.gbuffer_a),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, p_targets.gbuffer_c),
+	const RID trace_set = sets->get_cache(trace.shader.get_shader(), 0, frame, normal, depth, raw,
+			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 4, h.ray_list), roughness,
 			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 6, light_buffer.get_buffer()),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, p_ibl.get_source_cubemap()),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 8, p_ibl.get_prefilter_cubemap()),
@@ -160,86 +178,100 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, p_ddgi.distance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_ddgi.probe_data),
 			Uniform(RD::UNIFORM_TYPE_SAMPLER, 15, linear_clamp));
-	const RID temporal_set = sets->get_cache(temporal.shader.get_shader(), 0, frame,
-			Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 1, h.prev_frame_buffer),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, p_targets.gbuffer_b),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, p_targets.scene_depth),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, h.raw_reflection),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, h.history[prev]),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, h.prev_depth[prev]),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, h.prev_normal_roughness[prev]),
-			Uniform(RD::UNIFORM_TYPE_IMAGE, 8, h.history[curr]),
-			Uniform(RD::UNIFORM_TYPE_IMAGE, 9, h.prev_depth[curr]),
-			Uniform(RD::UNIFORM_TYPE_IMAGE, 10, h.prev_normal_roughness[curr]),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 11, p_targets.gbuffer_c),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 12, h.hit_dist[prev]),
-			Uniform(RD::UNIFORM_TYPE_IMAGE, 13, h.hit_dist[curr]));
-	// Temporal has consumed raw_reflection; reuse it for the middle filter step.
-	const RID filter_images[] = { h.history[curr], h.filtered_reflection, h.raw_reflection, half_res ? h.filtered_reflection : h.reflection_texture };
-	RID filter_sets[3];
-	for (int i = 0; i < 3; i++) {
-		filter_sets[i] = sets->get_cache(denoise.shader.get_shader(), 0, frame,
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 1, h.prev_normal_roughness[curr]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, h.prev_depth[curr]),
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, filter_images[i]), Uniform(RD::UNIFORM_TYPE_IMAGE, 4, filter_images[i + 1]),
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, h.hit_dist[curr]));
-		ERR_FAIL_COND_V(filter_sets[i].is_null(), false);
-	}
-	ERR_FAIL_COND_V(scene_set.is_null() || trace_set.is_null() || temporal_set.is_null(), false);
+	const Uniform prev_frame(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 1, h.prev_frame_buffer);
+	const RID reproject_set = sets->get_cache(reproject.shader.get_shader(), 0, frame, prev_frame,
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, p_targets.gbuffer_b), Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, p_targets.scene_depth),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, h.raw_reflection), Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, h.history[prev]),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, h.guide[prev]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, h.stats[prev]),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 8, p_targets.gbuffer_c), Uniform(RD::UNIFORM_TYPE_IMAGE, 9, h.guide[curr]),
+			Uniform(RD::UNIFORM_TYPE_IMAGE, 10, h.reprojected), Uniform(RD::UNIFORM_TYPE_IMAGE, 11, h.variance), Uniform(RD::UNIFORM_TYPE_IMAGE, 12, h.average));
+	const RID prefilter_set = sets->get_cache(prefilter.shader.get_shader(), 0, Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, h.raw_reflection),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 1, h.guide[curr]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, h.variance),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, h.average), Uniform(RD::UNIFORM_TYPE_IMAGE, 4, h.filtered), Uniform(RD::UNIFORM_TYPE_SAMPLER, 5, linear_clamp));
+	const RID temporal_set = sets->get_cache(temporal.shader.get_shader(), 0, Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, h.raw_reflection),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 1, h.guide[curr]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, h.filtered),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, h.reprojected), Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, h.average),
+			Uniform(RD::UNIFORM_TYPE_IMAGE, 5, h.history[curr]), Uniform(RD::UNIFORM_TYPE_IMAGE, 6, h.stats[curr]), Uniform(RD::UNIFORM_TYPE_SAMPLER, 7, linear_clamp));
+	ERR_FAIL_COND_V(classify_set.is_null() || scene_set.is_null() || trace_set.is_null() || reproject_set.is_null() || prefilter_set.is_null() || temporal_set.is_null(), false);
 	RID upsample_set;
 	if (half_res) {
 		upsample_set = sets->get_cache(upsample.shader.get_shader(), 0, frame, normal, depth,
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, h.filtered_reflection), Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, h.prev_depth[curr]),
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, h.prev_normal_roughness[curr]), Uniform(RD::UNIFORM_TYPE_IMAGE, 6, h.reflection_texture),
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, p_targets.gbuffer_c), Uniform(RD::UNIFORM_TYPE_TEXTURE, 8, p_targets.gbuffer_a));
+				Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, h.history[curr]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, h.guide[curr]),
+				Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, h.raw_reflection), Uniform(RD::UNIFORM_TYPE_IMAGE, 6, h.full_reflection[curr]),
+				Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, p_targets.gbuffer_c), Uniform(RD::UNIFORM_TYPE_TEXTURE, 8, p_targets.gbuffer_a),
+				Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 9, h.prev_frame_buffer), Uniform(RD::UNIFORM_TYPE_TEXTURE, 10, h.full_reflection[prev]),
+				Uniform(RD::UNIFORM_TYPE_TEXTURE, 11, h.mirror_guide[prev]), Uniform(RD::UNIFORM_TYPE_IMAGE, 12, h.mirror_guide[curr]));
 		ERR_FAIL_COND_V(upsample_set.is_null(), false);
 	}
 
-	struct TraceParams {
+	// Large full-resolution viewports can exceed the device's X dispatch limit.
+	const uint64_t rays_per_row = 64 * rd->limit_get(RD::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_X);
+	const uint32_t dispatch_rows = Math::division_round_up(uint64_t(work_size.x) * work_size.y, rays_per_row);
+	struct ClassifyParams {
 		Size2i full_size;
 		uint32_t pixel_scale;
 		float max_roughness;
-		uint32_t samples, frame_index, has_tlas, light_count;
+		uint32_t has_tlas, dispatch_rows, frame_index;
+	} classify_params = { full_size, pixel_scale, p_environment.rt_reflection_max_roughness, p_scene.has_tlas(), dispatch_rows, frame_index };
+	struct TraceParams {
+		Size2i full_size;
+		uint32_t pixel_scale, dispatch_rows;
+		uint32_t samples, frame_index, light_count;
 		YutrelSkyParams sky;
 		float max_mip;
-	} trace_params = { full_size, pixel_scale, p_environment.rt_reflection_max_roughness, uint32_t(p_environment.rt_reflection_samples), frame_index, p_scene.has_tlas(), p_lights.size(), p_sky, p_ibl.get_prefilter_max_mip() };
-	struct TemporalParams {
+	} trace_params = { full_size, pixel_scale, dispatch_rows, uint32_t(p_environment.rt_reflection_samples), frame_index, p_lights.size(), p_sky, p_ibl.get_prefilter_max_mip() };
+	const bool same_scene = reuse && h.last_scene_hash == p_scene.get_scene_hash();
+	const bool stationary = reuse && memcmp(p_frame.view_projection, h.prev_frame.view_projection, sizeof(p_frame.view_projection)) == 0;
+	struct ReprojectParams {
 		Size2i full_size;
-		uint32_t pixel_scale, has_history;
-		float max_history, dt_scale;
-	} temporal_params = { full_size, pixel_scale, reuse, 16.0f, p_time_step > 0 ? CLAMP(float(p_time_step * 60.0), 1.0f / 60.0f, 4.0f) : 1.0f };
-	struct FilterParams {
-		Size2i full_size;
-		uint32_t pixel_scale;
-		int32_t step_size;
-		uint32_t is_final;
-	};
-	static_assert(sizeof(TraceParams) == 48 && sizeof(TemporalParams) == 24 && sizeof(FilterParams) == 20);
+		uint32_t scale, index, has_history, stationary;
+	} reproject_params = { full_size, pixel_scale, frame_index, reuse, stationary };
+	struct ResolveParams {
+		Size2i size;
+		float dt_scale;
+	} resolve_params = { work_size, p_time_step > 0 ? CLAMP(float(p_time_step * 60.0), 1.0f / 60.0f, 4.0f) : 1.0f };
+	struct UpsampleParams {
+		float max_roughness;
+		uint32_t index, has_history, stationary, scene_changed;
+	} upsample_params = { p_environment.rt_reflection_max_roughness, frame_index, reuse, stationary, !same_scene };
+	static_assert(sizeof(ClassifyParams) == 28 && sizeof(TraceParams) == 44 && sizeof(ReprojectParams) == 24 && sizeof(ResolveParams) == 12 && sizeof(UpsampleParams) == 20);
 
+	// RD tracks indirect and shader reads separately. Keep the count in ray_list[0]
+	// so trace can read it while the command processor consumes the indirect buffer.
+	const uint32_t indirect_args[] = { 0, dispatch_rows, 1 };
+	ERR_FAIL_COND_V(rd->buffer_update(h.indirect_buffer, 0, sizeof(indirect_args), indirect_args) != OK, false);
+	ERR_FAIL_COND_V(rd->buffer_clear(h.ray_list, 0, sizeof(uint32_t)) != OK, false);
 	rd->draw_command_begin_label("Yutrel RT Reflection", Color(0.5, 0.6, 0.75));
+	RENDER_TIMESTAMP("Yutrel RT Reflection Classify");
+	dispatch(classify.pipeline, classify_set, classify_params, work_size);
 	RENDER_TIMESTAMP("Yutrel RT Reflection Trace");
-	dispatch(trace.pipeline, trace_set, trace_params, work_size, scene_set);
+	const RD::ComputeListID list = rd->compute_list_begin();
+	rd->compute_list_bind_compute_pipeline(list, trace.pipeline);
+	rd->compute_list_bind_uniform_set(list, trace_set, 0);
+	rd->compute_list_bind_uniform_set(list, scene_set, 1);
+	rd->compute_list_set_push_constant(list, &trace_params, sizeof(trace_params));
+	rd->compute_list_dispatch_indirect(list, h.indirect_buffer, 0);
+	rd->compute_list_end();
+	RENDER_TIMESTAMP("Yutrel RT Reflection Reproject");
+	dispatch(reproject.pipeline, reproject_set, reproject_params, work_size);
+	RENDER_TIMESTAMP("Yutrel RT Reflection Prefilter");
+	dispatch(prefilter.pipeline, prefilter_set, work_size, work_size);
 	RENDER_TIMESTAMP("Yutrel RT Reflection Temporal");
-	dispatch(temporal.pipeline, temporal_set, temporal_params, work_size);
-	RENDER_TIMESTAMP("Yutrel RT Reflection Denoise");
-	for (int i = 0; i < 3; i++) {
-		dispatch(denoise.pipeline, filter_sets[i], FilterParams{ full_size, pixel_scale, 1 << i, i == 2 }, work_size);
-	}
+	dispatch(temporal.pipeline, temporal_set, resolve_params, work_size);
 	if (half_res) {
 		RENDER_TIMESTAMP("Yutrel RT Reflection Upsample");
-		dispatch(upsample.pipeline, upsample_set, p_environment.rt_reflection_max_roughness, full_size);
+		dispatch(upsample.pipeline, upsample_set, upsample_params, full_size);
 	}
 	rd->draw_command_end_label();
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
-		const bool stationary = reuse && h.last_scene_hash == p_scene.get_scene_hash() &&
-				memcmp(p_frame.view_projection, h.prev_frame.view_projection, sizeof(p_frame.view_projection)) == 0;
-		h.last_scene_hash = p_scene.get_scene_hash();
-		h.converged_frames = stationary ? MIN(h.converged_frames + 1, 16u) : 0;
-		if (h.converged_frames < 16 && DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {
+		h.converged_frames = stationary && same_scene ? MIN(h.converged_frames + 1, 32u) : 0;
+		if (h.converged_frames < 32 && DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {
 			RenderingServerDefault::redraw_request();
 		}
 	}
 #endif
+	h.last_scene_hash = p_scene.get_scene_hash();
 	h.prev_frame = p_frame;
 	h.shader_version = version;
 	h.lighting_hash = lighting_hash;

@@ -56,9 +56,9 @@ public float3 offset_ray_origin(float3 p, float3 n)
 	return select(abs(p) < 1.0 / 32.0, p + n / 65536.0, offset);
 }
 
-float4 sample_map(uint index, float2 uv)
+float4 sample_map(uint index, float2 uv, float mip_lod)
 {
-	return rt_textures[NonUniformResourceIndex(index)].SampleLevel(rt_sampler, uv, 0.0);
+	return rt_textures[NonUniformResourceIndex(index)].SampleLevel(rt_sampler, uv, mip_lod);
 }
 
 struct Triangle
@@ -72,12 +72,14 @@ struct Triangle
 		return uv0 * mat.uv_transform.xy + mat.uv_transform.zw;
 	}
 
-	float3 face_normal(RTInstance inst)
+	float3 face_normal(RTInstance inst, out float double_area)
 	{
 		// Godot triangles wind clockwise. Restore object orientation after a reflection.
 		float3 ab = mul_normal_3x3(inst.model, b.position - a.position);
 		float3 ac = mul_normal_3x3(inst.model, c.position - a.position);
-		return normalize(cross(ac, ab)) * ((inst.flags & 1) != 0 ? -1.0 : 1.0);
+		float3 cross_product = cross(ac, ab);
+		double_area = length(cross_product);
+		return normalize(cross_product) * ((inst.flags & 1) != 0 ? -1.0 : 1.0);
 	}
 };
 
@@ -105,11 +107,12 @@ bool accept_candidate(uint instance, uint geometry, uint primitive, float2 bary,
 	if (!check_side && (mat.flags & ALPHA_SCISSOR) == 0)
 		return true;
 	Triangle tri = load_triangle(s, primitive, bary);
-	if (check_side && ((dot(tri.face_normal(inst), dir) < 0) == ((mat.flags & CULL_FRONT) != 0)))
+	float double_area;
+	if (check_side && ((dot(tri.face_normal(inst, double_area), dir) < 0) == ((mat.flags & CULL_FRONT) != 0)))
 		return false;
 	if ((mat.flags & ALPHA_SCISSOR) == 0)
 		return true;
-	float alpha = mat.albedo.a * sample_map(rt_material_textures[s.material_id].albedo, tri.uv(mat)).a;
+	float alpha = mat.albedo.a * sample_map(rt_material_textures[s.material_id].albedo, tri.uv(mat), 0.0).a;
 	if ((mat.flags & VERTEX_COLOR) != 0)
 		alpha *= dot(tri.weights, float3(tri.a.color.a, tri.b.color.a, tri.c.color.a));
 	return alpha >= mat.alpha_scissor_threshold;
@@ -154,7 +157,18 @@ public float3 sample_sun_disk(float3 light_dir, float tan_angular_radius, float2
 	return normalize(light_dir + tan_angular_radius * sqrt(u.x) * (cos(angle) * tangent + sin(angle) * cross(light_dir, tangent)));
 }
 
-public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, out RTHit hit, bool include_backfaces = false, bool distance_only = false)
+// Log2 UV footprint from the projected cone, plus the texture-specific texel density.
+float cone_mip(uint index, float uv_lod, bool use_cone)
+{
+	if (!use_cone)
+		return 0;
+	uint width, height;
+	rt_textures[NonUniformResourceIndex(index)].GetDimensions(width, height);
+	return clamp(uv_lod + 0.5 * log2(float(width) * height), 0, 8);
+}
+
+public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, out RTHit hit, bool include_backfaces = false, bool distance_only = false,
+		float2 ray_cone = float2(0), bool skip_normal_map = false)
 {
 	hit = {};
 	RayDesc ray = { origin, t_min, dir, t_max };
@@ -164,11 +178,13 @@ public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, o
 	Triangle tri;
 	MaterialData mat;
 	float3 face;
+	float double_area;
+	uint ray_flags = RAY_FLAG_NONE;
 	for (uint attempt = 0; attempt < 2; ++attempt)
 	{
 		// A force-opaque BLAS can commit a back face before we see a candidate.
 		// Retry only that case with candidate callbacks to find the next visible surface.
-		q.TraceRayInline(rt_tlas, attempt == 0 ? RAY_FLAG_NONE : RAY_FLAG_FORCE_NON_OPAQUE, 0xff, ray);
+		q.TraceRayInline(rt_tlas, ray_flags, 0xff, ray);
 		for (uint i = 0; i < 64 && q.Proceed(); ++i)
 		{
 			if (accept_candidate(q.CandidateInstanceID(), q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics(), dir, false, include_backfaces))
@@ -179,10 +195,11 @@ public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, o
 		inst = rt_instances[q.CommittedInstanceID()];
 		s = rt_surfaces[inst.first_surface + q.CommittedGeometryIndex()];
 		tri = load_triangle(s, q.CommittedPrimitiveIndex(), q.CommittedTriangleBarycentrics());
-		face = tri.face_normal(inst);
+		face = tri.face_normal(inst, double_area);
 		mat = rt_materials[s.material_id];
 		if (include_backfaces || (mat.flags & DOUBLE_SIDED) != 0 || ((dot(face, dir) < 0) != ((mat.flags & CULL_FRONT) != 0)))
 			break;
+		ray_flags = RAY_FLAG_FORCE_NON_OPAQUE;
 	}
 	hit.t = q.CommittedRayT();
 	hit.is_front_face = dot(face, dir) < 0;
@@ -194,23 +211,35 @@ public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, o
 	RTVertex a = tri.a, b = tri.b, c = tri.c;
 	RTMaterialTextures maps = rt_material_textures[s.material_id];
 	float2 uv = tri.uv(mat);
+	bool use_cone = ray_cone.x > 0;
+	float uv_lod = 0;
+	if (use_cone)
+	{
+		float2 duv1 = float2(b.u - a.u, b.v - a.v) * mat.uv_transform.xy;
+		float2 duv2 = float2(c.u - a.u, c.v - a.v) * mat.uv_transform.xy;
+		float uv_area = abs(duv1.x * duv2.y - duv1.y * duv2.x);
+		float width = (ray_cone.x + hit.t * ray_cone.y) / max(abs(dot(dir, face)), 0.1);
+		uv_lod = 0.5 * log2(max(1e-30, width * width * uv_area / max(double_area, 1e-20)));
+	}
 	float3 local = a.position + (b.position - a.position) * w.y + (c.position - a.position) * w.z;
 	hit.world_pos = mul_3x4(inst.model, float4(local, 1));
 	hit.geometric_normal = hit.is_front_face ? face : -face;
 	hit.is_unlit = (mat.flags & UNLIT) != 0;
 	float3 n = normalize_or(mul_normal_3x3(inst.normal, a.normal * w.x + b.normal * w.y + c.normal * w.z), face);
 	float4 tangent = a.tangent * w.x + b.tangent * w.y + c.tangent * w.z;
-	if ((mat.flags & HAS_NORMAL_MAP) != 0 && abs(tangent.w) > 0.0001)
+	bool has_normal = !skip_normal_map && (mat.flags & HAS_NORMAL_MAP) != 0 && abs(tangent.w) > 0.0001;
+	float normal_lod = has_normal ? cone_mip(maps.normal, uv_lod, use_cone) : 2.0;
+	if (normal_lod < 2.0)
 	{
 		float3 t = mul_normal_3x3(inst.model, tangent.xyz);
 		t = normalize_or(t - n * dot(t, n), 0);
 		float sign_b = (inst.flags & 1) != 0 ? -sign(tangent.w) : sign(tangent.w);
-		float2 xy = sample_map(maps.normal, uv).rg * 2 - 1;
+		float2 xy = sample_map(maps.normal, uv, normal_lod).rg * 2 - 1;
 		float z = sqrt(saturate(1 - dot(xy, xy)));
 		n = normalize_or(n * z + (t * xy.x + cross(n, t) * sign_b * xy.y) * mat.normal_scale, n);
 	}
 	hit.shading_normal = !hit.is_front_face && (hit.is_double_sided || (mat.flags & CULL_FRONT) != 0) ? -n : n;
-	float3 base = mat.albedo.rgb * sample_map(maps.albedo, uv).rgb;
+	float3 base = mat.albedo.rgb * sample_map(maps.albedo, uv, cone_mip(maps.albedo, uv_lod, use_cone)).rgb;
 	if ((mat.flags & VERTEX_COLOR) != 0)
 	{
 		bool srgb = (mat.flags & SRGB_VERTEX_COLOR) != 0;
@@ -219,13 +248,13 @@ public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, o
 			+ (srgb ? srgb_to_linear(c.color.rgb) : c.color.rgb) * w.z;
 	}
 	hit.base_color = saturate(base);
-	hit.roughness = saturate(mat.roughness * dot(mat.roughness_channel, sample_map(maps.roughness, uv)));
-	hit.metallic = saturate(mat.metallic * dot(mat.metallic_channel, sample_map(maps.metallic, uv)));
+	hit.roughness = saturate(mat.roughness * dot(mat.roughness_channel, sample_map(maps.roughness, uv, cone_mip(maps.roughness, uv_lod, use_cone))));
+	hit.metallic = saturate(mat.metallic * dot(mat.metallic_channel, sample_map(maps.metallic, uv, cone_mip(maps.metallic, uv_lod, use_cone))));
 	hit.specular = saturate(mat.specular);
 	hit.emissive = mat.emission;
 	if ((mat.flags & HAS_EMISSION_TEXTURE) != 0)
 	{
-		float3 emission = sample_map(maps.emissive, uv).rgb;
+		float3 emission = sample_map(maps.emissive, uv, cone_mip(maps.emissive, uv_lod, use_cone)).rgb;
 		hit.emissive = (mat.flags & EMISSION_OP_MULTIPLY) != 0 ? hit.emissive * emission : hit.emissive + emission;
 	}
 	hit.emissive *= mat.emission_energy;

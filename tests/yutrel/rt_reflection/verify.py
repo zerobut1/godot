@@ -7,8 +7,12 @@ import tempfile
 from pathlib import Path
 
 FIXTURE = Path(__file__).resolve().parent
-STAGES = [f"rt_reflection_{stage}.slang" for stage in ("trace", "temporal", "denoise", "upsample")]
-RELOAD_DEPENDENCIES = {"rt_reflection_common.slang": STAGES, **{stage: [stage] for stage in STAGES}}
+STAGES = [f"rt_reflection_{stage}.slang" for stage in ("classify", "trace", "reproject", "prefilter", "temporal", "upsample")]
+RELOAD_DEPENDENCIES = {
+    "rt_reflection_common.slang": STAGES,
+    "rt_scene.slang": ["rt_reflection_trace.slang"],
+    **{stage: [stage] for stage in STAGES},
+}
 
 if __name__ == "__main__":
     sys.path.insert(0, str(FIXTURE.parent))

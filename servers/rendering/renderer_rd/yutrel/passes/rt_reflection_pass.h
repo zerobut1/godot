@@ -30,29 +30,32 @@
 
 #pragma once
 
+#include "../yutrel_rt_scene.h"
 #include "directional_light_pass.h"
 #include "ibl_pass.h"
-
-#include "../yutrel_rt_scene.h"
 
 namespace RendererSceneRenderImplementation {
 
 class RTReflectionPass {
+	YutrelComputeShader classify;
 	YutrelComputeShader trace;
 	YutrelComputeShader temporal;
-	YutrelComputeShader denoise;
+	YutrelComputeShader reproject;
+	YutrelComputeShader prefilter;
 	YutrelComputeShader upsample;
 	YutrelStorageBuffer light_buffer;
 	RID fallback_reflection;
 
 public:
-	// G-buffer A/B/C, depth, source and prefiltered sky, and three DDGI atlases.
-	static constexpr uint32_t RT_SAMPLED_IMAGES = 9;
+	// Trace samples G-buffer B/C, depth, source and prefiltered sky, and three DDGI atlases.
+	static constexpr uint32_t RT_SAMPLED_IMAGES = 8;
 
 	struct History {
-		RID reflection_texture, raw_reflection, filtered_reflection;
-		RID history[2], prev_depth[2], prev_normal_roughness[2], hit_dist[2];
+		RID raw_reflection, reprojected, variance, average, filtered;
+		RID history[2], guide[2], stats[2];
+		RID full_reflection[2], mirror_guide[2];
 		RID prev_frame_buffer;
+		RID ray_list, indirect_buffer;
 		YutrelFrameData prev_frame;
 		bool has_history = false;
 		uint32_t frame_index = 0;
@@ -63,12 +66,13 @@ public:
 		float last_max_roughness = 0;
 		int last_samples = 0;
 		bool last_half_resolution = true;
-#ifdef TOOLS_ENABLED
 		uint64_t last_scene_hash = 0;
+#ifdef TOOLS_ENABLED
 		uint32_t converged_frames = 0;
 #endif
 
-		bool ensure_size(Size2i p_full_size, Size2i p_work_size);
+		RID get_output() const { return last_half_resolution ? full_reflection[history_slot] : history[history_slot]; }
+		bool ensure_size(Size2i p_full_size, Size2i p_work_size, bool p_half_res);
 		void clear();
 		~History() { clear(); }
 	};

@@ -244,7 +244,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	if (!environment.rtao_enabled && custom->rtao_history.ao_texture.is_valid()) {
 		custom->rtao_history.clear();
 	}
-	if (!environment.rt_reflection_enabled && custom->rt_reflection_history.reflection_texture.is_valid()) {
+	if (!environment.rt_reflection_enabled && custom->rt_reflection_history.get_output().is_valid()) {
 		custom->rt_reflection_history.clear();
 	}
 	LocalVector<DirectionalLightItem> lights = DirectionalLightPass::collect(*p_render_data);
@@ -370,7 +370,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	if (!rt_reflection_ready) {
 		custom->rt_reflection_history.has_history = false;
 	}
-	targets.rt_reflection_texture = rt_reflection_ready ? custom->rt_reflection_history.reflection_texture : rt_reflection_pass.get_fallback_reflection();
+	targets.rt_reflection_texture = rt_reflection_ready ? custom->rt_reflection_history.get_output() : rt_reflection_pass.get_fallback_reflection();
 	bool primary_shadow = false;
 	bool ran_rt_shadow = false;
 	if (indirect_only || (lighting_only && (!draw_lighting || lights.is_empty()))) {
