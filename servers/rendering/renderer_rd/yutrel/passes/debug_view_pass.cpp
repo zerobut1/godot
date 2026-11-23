@@ -63,7 +63,8 @@ void DebugViewPass::render(const YutrelPipelineTargets &p_targets, DebugViewMode
 			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, p_targets.scene_depth),
 			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, p_targets.scene_color),
 			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, p_targets.shadow_mask),
-			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, p_targets.ao_texture));
+			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, p_targets.ao_texture),
+			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, p_targets.rt_reflection_texture));
 	const DebugViewPushConstant debug = { { p_targets.region.position.x, p_targets.region.position.y }, p_targets.output_linear, uint32_t(p_mode), p_has_primary_shadow };
 	draw_fullscreen("Yutrel DebugViewPass", Color(0.6, 0.5, 0.9), p_targets.region, p_targets.output_framebuffer, debug_pipeline, debug_set, &debug, sizeof(debug));
 }

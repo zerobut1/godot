@@ -108,7 +108,8 @@ func furnace() -> void:
 	volume.max_ray_distance = 100
 	volume.probe_classification = true
 	volume.rays_per_probe = 257
-	# Suppressing the active volume proves the furnace measured its contribution.
+	# Isolate DDGI fallback visibility for the zero-intensity and volume ownership checks.
+	sky.rt_reflection_enabled = false
 	volume.intensity = 0
 	check(probe(await snapshot(), item.position).r < 0.005, "Zero volume intensity suppresses both diffuse and sky specular")
 	volume.intensity = 1
@@ -130,6 +131,8 @@ func furnace() -> void:
 	volume.show()
 	standby.free()
 	check(probe(await snapshot(32), item.position).r > 0.97, "Removing the active volume restores its successor")
+
+	sky.rt_reflection_enabled = true
 
 	# Disable adaptive darkening to make any stale data from the old grid visible.
 	volume.hysteresis = 0.99

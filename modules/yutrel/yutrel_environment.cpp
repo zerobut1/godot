@@ -93,6 +93,15 @@ void YutrelEnvironment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_rtao_samples", "samples"), &YutrelEnvironment::set_rtao_samples);
 	ClassDB::bind_method(D_METHOD("get_rtao_samples"), &YutrelEnvironment::get_rtao_samples);
 
+	ClassDB::bind_method(D_METHOD("set_rt_reflection_enabled", "enabled"), &YutrelEnvironment::set_rt_reflection_enabled);
+	ClassDB::bind_method(D_METHOD("get_rt_reflection_enabled"), &YutrelEnvironment::get_rt_reflection_enabled);
+	ClassDB::bind_method(D_METHOD("set_rt_reflection_half_resolution", "enabled"), &YutrelEnvironment::set_rt_reflection_half_resolution);
+	ClassDB::bind_method(D_METHOD("get_rt_reflection_half_resolution"), &YutrelEnvironment::get_rt_reflection_half_resolution);
+	ClassDB::bind_method(D_METHOD("set_rt_reflection_max_roughness", "roughness"), &YutrelEnvironment::set_rt_reflection_max_roughness);
+	ClassDB::bind_method(D_METHOD("get_rt_reflection_max_roughness"), &YutrelEnvironment::get_rt_reflection_max_roughness);
+	ClassDB::bind_method(D_METHOD("set_rt_reflection_samples", "samples"), &YutrelEnvironment::set_rt_reflection_samples);
+	ClassDB::bind_method(D_METHOD("get_rt_reflection_samples"), &YutrelEnvironment::get_rt_reflection_samples);
+
 	ADD_GROUP("Shadow", "shadow_");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "shadow_mode", PROPERTY_HINT_ENUM, "CSM,Ray Traced"), "set_shadow_mode", "get_shadow_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "shadow_resolution", PROPERTY_HINT_ENUM, "1024:1024,2048:2048,4096:4096"), "set_shadow_resolution", "get_shadow_resolution");
@@ -111,6 +120,11 @@ void YutrelEnvironment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rtao_radius", PROPERTY_HINT_RANGE, "0.05,10.0,0.05"), "set_rtao_radius", "get_rtao_radius");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rtao_intensity", PROPERTY_HINT_RANGE, "0.0,4.0,0.05"), "set_rtao_intensity", "get_rtao_intensity");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "rtao_samples", PROPERTY_HINT_RANGE, "1,8,1"), "set_rtao_samples", "get_rtao_samples");
+	ADD_GROUP("RT Reflection", "rt_reflection_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rt_reflection_enabled"), "set_rt_reflection_enabled", "get_rt_reflection_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rt_reflection_half_resolution"), "set_rt_reflection_half_resolution", "get_rt_reflection_half_resolution");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rt_reflection_max_roughness", PROPERTY_HINT_RANGE, "0.1,1.0,0.05"), "set_rt_reflection_max_roughness", "get_rt_reflection_max_roughness");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "rt_reflection_samples", PROPERTY_HINT_RANGE, "1,4,1"), "set_rt_reflection_samples", "get_rt_reflection_samples");
 	ADD_GROUP("Tone Mapping", "");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "tone_mapping", PROPERTY_HINT_ENUM, "AgX,AgX Punchy,ACES,None"), "set_tone_mapping", "get_tone_mapping");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure", PROPERTY_HINT_RANGE, "0.0,16.0,0.05,or_greater"), "set_exposure", "get_exposure");
@@ -240,6 +254,27 @@ void YutrelEnvironment::set_rtao_samples(int p_samples) {
 	_publish_settings();
 }
 
+void YutrelEnvironment::set_rt_reflection_enabled(bool p_enabled) {
+	rt_reflection_enabled = p_enabled;
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_rt_reflection_half_resolution(bool p_enabled) {
+	rt_reflection_half_resolution = p_enabled;
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_rt_reflection_max_roughness(float p_roughness) {
+	ERR_FAIL_COND(!Math::is_finite(p_roughness));
+	rt_reflection_max_roughness = CLAMP(p_roughness, 0.1f, 1.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_rt_reflection_samples(int p_samples) {
+	rt_reflection_samples = CLAMP(p_samples, 1, 4);
+	_publish_settings();
+}
+
 void YutrelEnvironment::_publish_settings() {
 	if (world.is_valid()) {
 		const YutrelEnvironmentSettings settings = {
@@ -259,6 +294,10 @@ void YutrelEnvironment::_publish_settings() {
 			rtao_radius,
 			rtao_intensity,
 			rtao_samples,
+			rt_reflection_enabled,
+			rt_reflection_half_resolution,
+			rt_reflection_max_roughness,
+			rt_reflection_samples,
 		};
 		YutrelEnvironmentSettings::set(internal_environment->get_rid(), settings);
 		RenderingServerDefault::redraw_request();

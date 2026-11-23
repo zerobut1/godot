@@ -69,10 +69,10 @@ public float4 shade_transparent<S : ITransparentShadows>(VertexOutput input, boo
 		}
 		if (draw.has_ibl != 0)
 		{
-			IBLParams sky = { draw.sky_intensity, draw.sky_sin_rot, draw.sky_cos_rot, draw.prefilter_max_mip, 0 };
+			IBLParams sky = { draw.sky_intensity, draw.sky_sin_rot, draw.sky_cos_rot, draw.prefilter_max_mip, 0, 0, 1 };
 			DDGIResources probes = { probe_irradiance, probe_distance, probe_data, linear_clamp };
 			color += evaluate_ibl(p, surface.material_ao, sky, prefilter_cubemap, cube_sampler, sh,
-					world, volume, probes);
+					world, volume, probes, float4(0));
 		}
 	}
 	color = clamp(sanitize_finite(color), 0.0, 65504.0);

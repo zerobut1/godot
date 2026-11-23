@@ -57,6 +57,7 @@ public:
 	RID path_tracer_accum;
 	DDGIPass::History ddgi_history;
 	RTAOPass::History rtao_history;
+	RTReflectionPass::History rt_reflection_history;
 	RTShadowPass::History rt_shadow_history;
 	uint64_t pt_state_hash = 0;
 	uint32_t pt_sample_count = 0;
@@ -83,6 +84,7 @@ public:
 		pt_state_hash = 0;
 		ddgi_history.clear();
 		rtao_history.clear();
+		rt_reflection_history.clear();
 		rt_shadow_history.clear();
 	}
 };
@@ -242,9 +244,13 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	if (!environment.rtao_enabled && custom->rtao_history.ao_texture.is_valid()) {
 		custom->rtao_history.clear();
 	}
+	if (!environment.rt_reflection_enabled && custom->rt_reflection_history.reflection_texture.is_valid()) {
+		custom->rt_reflection_history.clear();
+	}
 	LocalVector<DirectionalLightItem> lights = DirectionalLightPass::collect(*p_render_data);
 	if (settings.debug_view == DebugViewMode::PATH_TRACER) {
 		custom->rt_shadow_history.invalidate();
+		custom->rt_reflection_history.has_history = false;
 		custom->rtao_history.has_history = false;
 		ERR_FAIL_COND(!output_pass.prepare() || !ibl_pass.prepare_environment(environment));
 #ifdef TOOLS_ENABLED
@@ -314,15 +320,18 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	};
 	YutrelDDGISettings volume;
 	const bool has_volume = YutrelDDGISettings::get(YutrelRayTracingScene::get_scenario(*p_render_data), volume);
+	const bool rt_reflection_mode = settings.debug_view == DebugViewMode::RT_REFLECTION;
+	const bool needs_rt_reflection = environment.rt_reflection_enabled && (final || lighting_only || rt_reflection_mode) &&
+			base_pass.has_draws() && YutrelRayTracingScene::is_supported(RTReflectionPass::RT_SAMPLED_IMAGES);
 	const bool needs_ddgi = has_volume && volume.size[volume.size.min_axis_index()] > 0 &&
-			(final || lighting_only || indirect_only) && YutrelRayTracingScene::is_supported(4);
+			(final || lighting_only || indirect_only || needs_rt_reflection) && YutrelRayTracingScene::is_supported(4);
 	const bool rtao_mode = settings.debug_view == DebugViewMode::RTAO;
 	const bool needs_rtao = environment.rtao_enabled && (final || lighting_only || indirect_only || rtao_mode) &&
 			base_pass.has_draws() && YutrelRayTracingScene::is_supported(2);
-	const bool ibl_ready = (needs_ddgi || draw_lighting || draw_sky || draw_transparent) && ibl_pass.prepare_environment(environment);
+	const bool ibl_ready = (needs_rt_reflection || needs_ddgi || draw_lighting || draw_sky || draw_transparent) && ibl_pass.prepare_environment(environment);
 	bool rt_ready = false;
 	const bool needs_rt_shadow = want_rt_shadow && has_shadow_light && (draw_lighting || draw_transparent || debug_mask);
-	if (needs_ddgi || needs_rtao || needs_rt_shadow) {
+	if (needs_ddgi || needs_rtao || needs_rt_shadow || needs_rt_reflection) {
 		RENDER_TIMESTAMP("Yutrel RT Scene Update");
 		rt_ready = rt_scene.update(*p_render_data, material_bridge);
 	}
@@ -348,9 +357,20 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	DDGIBindings bindings;
 	if (ddgi_ready) {
 		bindings = custom->ddgi_history.bindings;
-	} else if (draw_lighting || draw_transparent) {
+	} else if (draw_lighting || draw_transparent || needs_rt_reflection) {
 		bindings = ibl_pass.get_inactive_ddgi();
 	}
+	bool rt_reflection_ready = false;
+	if (needs_rt_reflection && rt_ready && ibl_ready) {
+		RENDER_TIMESTAMP("> Yutrel RT Reflection");
+		rt_reflection_ready = rt_reflection_pass.render(custom->rt_reflection_history, targets, frame_buffer, frame, environment, lights,
+				ibl_pass, sky_params, bindings, rt_scene, p_render_data->scene_data->time_step);
+		RENDER_TIMESTAMP("< Yutrel RT Reflection");
+	}
+	if (!rt_reflection_ready) {
+		custom->rt_reflection_history.has_history = false;
+	}
+	targets.rt_reflection_texture = rt_reflection_ready ? custom->rt_reflection_history.reflection_texture : rt_reflection_pass.get_fallback_reflection();
 	bool primary_shadow = false;
 	bool ran_rt_shadow = false;
 	if (indirect_only || (lighting_only && (!draw_lighting || lights.is_empty()))) {
@@ -392,7 +412,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	}
 	if ((draw_lighting || (indirect_only && ddgi_ready && base_pass.has_draws())) && ibl_ready) {
 		RENDER_TIMESTAMP("Yutrel IBL / Indirect");
-		ibl_pass.render(targets, frame_buffer, directional_light_pass.get_dfg_lut(), sky_params, bindings, indirect_only);
+		ibl_pass.render(targets, frame_buffer, directional_light_pass.get_dfg_lut(), sky_params, bindings, environment.rt_reflection_max_roughness, indirect_only);
 	}
 	if (draw_sky && ibl_ready) {
 		RENDER_TIMESTAMP("Yutrel Skybox");

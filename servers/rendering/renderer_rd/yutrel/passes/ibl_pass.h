@@ -101,7 +101,7 @@ public:
 	RID get_cube_sampler() const { return cube_sampler; }
 
 	DDGIBindings get_inactive_ddgi();
-	void render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_dfg_lut, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi, bool p_indirect_only);
+	void render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_dfg_lut, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi, float p_max_roughness, bool p_indirect_only);
 };
 
 } // namespace RendererSceneRenderImplementation

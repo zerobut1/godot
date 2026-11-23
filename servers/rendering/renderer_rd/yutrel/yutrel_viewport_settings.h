@@ -52,6 +52,7 @@ enum class DebugViewMode : uint32_t {
 	DDGI_INDIRECT,
 	DDGI_PROBES,
 	RTAO,
+	RT_REFLECTION,
 };
 
 struct YutrelViewportSettings {

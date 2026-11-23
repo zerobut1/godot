@@ -64,12 +64,13 @@ struct IBLParams {
 	YutrelSkyParams sky;
 	float max_mip;
 	uint32_t indirect_only;
+	float fade_start, max_roughness;
 };
 
 static_assert(sizeof(EquirectParams) == 24);
 static_assert(sizeof(PrefilterParams) == 16);
 static_assert(sizeof(SHParams) == 8);
-static_assert(sizeof(IBLParams) == 20);
+static_assert(sizeof(IBLParams) == 28);
 
 template <typename Params>
 bool dispatch(RID p_pipeline, RID p_set, const Params &p_params, uint32_t p_x, uint32_t p_y, uint32_t p_z = 1) {
@@ -308,7 +309,7 @@ DDGIBindings IBLPass::get_inactive_ddgi() {
 	return inactive_ddgi;
 }
 
-void IBLPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_dfg_lut, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi, bool p_indirect_only) {
+void IBLPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_dfg_lut, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi, float p_max_roughness, bool p_indirect_only) {
 	if (!baked || lighting_shader.get_shader().is_null()) {
 		return;
 	}
@@ -329,8 +330,9 @@ void IBLPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer,
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 11, p_ddgi.irradiance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 12, p_ddgi.distance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, p_ddgi.probe_data),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_targets.ao_texture));
-	const IBLParams params = { p_sky, get_prefilter_max_mip(), p_indirect_only };
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_targets.ao_texture),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 15, p_targets.rt_reflection_texture));
+	const IBLParams params = { p_sky, get_prefilter_max_mip(), p_indirect_only, 0.75f * p_max_roughness, p_max_roughness };
 	draw_fullscreen("Yutrel IBLPass", Color(0.25, 0.7, 0.85), p_targets.region, p_targets.lighting_framebuffer, lighting_pipeline, set, &params, sizeof(params));
 }
 

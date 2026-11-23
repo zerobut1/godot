@@ -104,6 +104,18 @@ public:
 	void set_rtao_samples(int p_samples);
 	int get_rtao_samples() const { return rtao_samples; }
 
+	void set_rt_reflection_enabled(bool p_enabled);
+	bool get_rt_reflection_enabled() const { return rt_reflection_enabled; }
+
+	void set_rt_reflection_half_resolution(bool p_enabled);
+	bool get_rt_reflection_half_resolution() const { return rt_reflection_half_resolution; }
+
+	void set_rt_reflection_max_roughness(float p_roughness);
+	float get_rt_reflection_max_roughness() const { return rt_reflection_max_roughness; }
+
+	void set_rt_reflection_samples(int p_samples);
+	int get_rt_reflection_samples() const { return rt_reflection_samples; }
+
 	PackedStringArray get_configuration_warnings() const override;
 
 protected:
@@ -127,6 +139,10 @@ private:
 	float rtao_radius = 1.0f;
 	float rtao_intensity = 1.0f;
 	int rtao_samples = 1;
+	bool rt_reflection_enabled = true;
+	bool rt_reflection_half_resolution = true;
+	float rt_reflection_max_roughness = 0.6f;
+	int rt_reflection_samples = 1;
 	Ref<Environment> internal_environment;
 	Ref<Environment> previous_environment;
 	Ref<World3D> world;

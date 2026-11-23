@@ -61,9 +61,9 @@ func run() -> void:
 			for previous in images:
 				check(image.get_data() != previous.get_data(), "Editor debug views produce distinct output")
 		images.append(image)
-	check(labels == PackedStringArray(["Final", "Albedo", "World Normal", "Roughness", "Metallic", "Material AO", "Lighting", "Depth", "Shadow Mask", "CSM Cascades", "Path Tracer", "DDGI Indirect", "DDGI Probes", "RTAO"]),
+	check(labels == PackedStringArray(["Final", "Albedo", "World Normal", "Roughness", "Metallic", "Material AO", "Lighting", "Depth", "Shadow Mask", "CSM Cascades", "Path Tracer", "DDGI Indirect", "DDGI Probes", "RTAO", "RT Reflection"]),
 			"Editor debug menus expose all expected views")
-	if labels.size() != 14:
+	if labels.size() != 15:
 		get_tree().quit(1)
 		return
 

@@ -30,18 +30,6 @@ float random(inout uint state)
 	return float(((word >> 22u) ^ word) >> 8u) * (1.0 / 16777216.0);
 }
 
-// Heitz (2018): sample the projected disk in the stretched view frame.
-float3 sample_vndf(float3 v, float alpha, float2 u)
-{
-	float3 vh = normalize(float3(alpha * v.xy, v.z));
-	float3 t = normalize_or(float3(-vh.y, vh.x, 0), float3(1, 0, 0));
-	float angle = 2 * PI * u.y;
-	float2 disk = sqrt(u.x) * float2(cos(angle), sin(angle));
-	disk.y = lerp(sqrt(saturate(1 - disk.x * disk.x)), disk.y, 0.5 * (1 + vh.z));
-	float3 h = t * disk.x + cross(vh, t) * disk.y + vh * sqrt(saturate(1 - dot(disk, disk)));
-	return normalize(float3(alpha * h.xy, max(h.z, 0.0)));
-}
-
 float3 integrate(float3 origin, float3 dir, inout uint rng)
 {
 	float3 radiance = 0, throughput = 1;

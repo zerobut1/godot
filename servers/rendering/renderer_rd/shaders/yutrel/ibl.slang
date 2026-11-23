@@ -20,6 +20,8 @@ import ddgi_common;
 [[vk::binding(13, 0)]] Texture2DArray<float4> probe_data;
 [[vk::binding(14, 0)]] Texture2D<float> ao_texture;
 
+[[vk::binding(15, 0)]] Texture2D<float4> rt_reflection_texture;
+
 [[vk::push_constant]] ConstantBuffer<IBLParams> params;
 
 [shader("vertex")]
@@ -44,6 +46,6 @@ float4 fragment_main(float4 position : SV_Position) : SV_Target0
 	DDGIResources probes = { probe_irradiance, probe_distance, probe_data, linear_clamp };
 	float ao = surface.material_ao * load_viewport_ao(ao_texture, pixel.xy - int2(frame.viewport_origin));
 	float3 color = evaluate_ibl(p, ao, params, prefilter_cubemap, cube_sampler, sh,
-			world, volume, probes);
+			world, volume, probes, load_viewport_reflection(rt_reflection_texture, pixel.xy - int2(frame.viewport_origin)));
 	return float4(clamp(sanitize_finite(color), 0.0, 65504.0), 0.0);
 }

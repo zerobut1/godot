@@ -10,6 +10,8 @@ import gbuffer;
 [[vk::binding(5, 0)]] Texture2D<float> shadow_mask;
 [[vk::binding(6, 0)]] Texture2D<float> ao_texture;
 
+[[vk::binding(7, 0)]] Texture2D<float4> rt_reflection_texture;
+
 struct DebugData
 {
 	int2 viewport_origin;
@@ -62,6 +64,12 @@ float4 fragment_main(float4 position : SV_Position) : SV_Target0
 			color = load_viewport_ao(ao_texture, pixel.xy - debug_data.viewport_origin);
 			display_encoded = true;
 			break;
+		case 14:
+		{
+			float4 rt = load_viewport_reflection(rt_reflection_texture, pixel.xy - debug_data.viewport_origin);
+			color = rt.a > 0 ? rt.rgb / (1 + rt.rgb) : 0;
+			break;
+		}
 		case 7:
 			// A logarithmic display curve reveals distant reverse-Z geometry.
 			color = log2(1.0 + 4095.0 * saturate(depth)) / 12.0;

@@ -1,0 +1,133 @@
+import brdf;
+import common;
+import ddgi_common;
+import ibl_common;
+import ibl_lighting;
+import rt_reflection_common;
+import rt_scene;
+import rtao_common;
+
+struct DirectionalLight
+{
+	float4 direction;
+	float3 radiance;
+	uint has_shadow;
+};
+
+[[vk::binding(0, 0)]] ConstantBuffer<FrameData> frame;
+[[vk::binding(1, 0)]] Texture2D<float4> gbuffer_b;
+[[vk::binding(2, 0)]] Texture2D<float> scene_depth;
+[[vk::binding(3, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> raw_reflection;
+[[vk::binding(4, 0)]] Texture2D<float4> gbuffer_a;
+[[vk::binding(5, 0)]] Texture2D<float4> gbuffer_c;
+[[vk::binding(6, 0)]] StructuredBuffer<DirectionalLight> lights;
+[[vk::binding(7, 0)]] TextureCube<float4> source_cubemap;
+[[vk::binding(8, 0)]] TextureCube<float4> prefilter_cubemap;
+[[vk::binding(9, 0)]] SamplerState cube_sampler;
+[[vk::binding(10, 0)]] StructuredBuffer<float4> sh;
+[[vk::binding(11, 0)]] ConstantBuffer<DDGIVolumeData> volume;
+[[vk::binding(12, 0)]] Texture2DArray<float4> irradiance;
+[[vk::binding(13, 0)]] Texture2DArray<float2> distance_atlas;
+[[vk::binding(14, 0)]] Texture2DArray<float4> probe_data;
+[[vk::binding(15, 0)]] SamplerState linear_clamp;
+
+struct TraceParams
+{
+	int2 full_size;
+	uint pixel_scale;
+	float max_roughness;
+	uint samples, frame_index, has_tlas, light_count;
+	float sky_intensity, sin_rot, cos_rot, max_mip;
+};
+[[vk::push_constant]] ConstantBuffer<TraceParams> params;
+
+float3 incoming_radiance(float3 origin, float3 dir, float t_min, out float hit_dist)
+{
+	RTHit hit;
+	if (!trace_surface(origin, dir, t_min, 1e20, hit))
+	{
+		hit_dist = 1e4;
+		float3 sky_dir = inverse_sky_rotation(dir, params.sin_rot, params.cos_rot);
+		return source_cubemap.SampleLevel(cube_sampler, sky_dir, 0).rgb * params.sky_intensity;
+	}
+	hit_dist = min(hit.t, 65504.0);
+	if (hit.is_unlit)
+		return hit.emissive + hit.base_color;
+	float3 N = dot(hit.shading_normal, -dir) > MIN_N_DOT_V ? hit.shading_normal : hit.geometric_normal;
+	float NoV = max(dot(N, -dir), MIN_N_DOT_V);
+	float3 f0 = standard_f0(hit.base_color, hit.metallic, hit.specular);
+	float3 fresnel = F_Schlick(f0, saturate(dot(f0, float3(16.5))), NoV);
+	float3 diffuse = hit.base_color * (1 - hit.metallic) * (1 - fresnel);
+	float3 hit_origin = offset_ray_origin(hit.world_pos, hit.geometric_normal);
+	float hit_t_min = max(0.002, hit.t * 0.0005);
+	float roughness = max(MIN_PERCEPTUAL_ROUGHNESS, hit.roughness);
+	float3 radiance = hit.emissive;
+	for (uint i = 0; i < params.light_count; ++i)
+	{
+		float3 L = lights[i].direction.xyz;
+		float NoL = dot(N, L);
+		if (NoL <= 0 || dot(hit.geometric_normal, L) <= 0 || trace_shadow_ray(hit_origin, L, hit_t_min, 1e20))
+			continue;
+		float3 H = normalize_or(L - dir, N);
+		radiance += evaluate_brdf(diffuse, f0, roughness * roughness, NoV, NoL, saturate(dot(N, H)), saturate(dot(L, H)), 1)
+				* lights[i].radiance * NoL;
+	}
+	IBLParams sky = { params.sky_intensity, params.sin_rot, params.cos_rot, params.max_mip, 0, 0, 1 };
+	DDGIResources probes = { irradiance, distance_atlas, probe_data, linear_clamp };
+	float visibility;
+	float3 probe_diffuse;
+	radiance += diffuse * indirect_environment(hit.world_pos, N, dir, sky, sh, volume, probes, visibility, probe_diffuse);
+	float3 R = inverse_sky_rotation(reflect(dir, N), params.sin_rot, params.cos_rot);
+	float mip = params.max_mip * roughness * (2 - roughness);
+	return radiance + prefilter_cubemap.SampleLevel(cube_sampler, R, mip).rgb * f0 * params.sky_intensity * visibility;
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void compute_main(uint3 tid : SV_DispatchThreadID)
+{
+	uint width, height;
+	raw_reflection.GetDimensions(width, height);
+	if (any(tid.xy >= uint2(width, height)))
+		return;
+	int2 pixel = rtao_frame_pixel(int2(tid.xy), params.pixel_scale, params.full_size, frame.viewport_origin);
+	int3 coord = int3(pixel, 0);
+	float depth = scene_depth.Load(coord);
+	float r = gbuffer_c.Load(coord).r;
+	if (depth <= 0 || params.has_tlas == 0 || gbuffer_a.Load(coord).a == 0 || r >= params.max_roughness)
+	{
+		raw_reflection[tid.xy] = float4(0, 0, 0, -1);
+		return;
+	}
+	float3 world = reconstruct_world_position(pixel + 0.5, depth, frame);
+	float3 N = reflection_normal(gbuffer_b.Load(coord));
+	float3 Ng = geometric_normal(scene_depth, frame, pixel, params.full_size, depth, world, N);
+	float3 V = reflection_view(world, frame);
+	float3 origin = offset_ray_origin(world, Ng);
+	float t_min = max(0.002, length(frame.camera_position.xyz - world) * 0.0005);
+	float3 T = normalize(cross(abs(N.z) < 0.99 ? float3(0, 0, 1) : float3(0, 1, 0), N));
+	float3 B = cross(N, T);
+	uint seed = hash_pixel(tid.y * width + tid.x);
+	float2 rotation = float2(seed & 65535u, seed >> 16) / 65536.0;
+	uint count = r < 0.04 ? 1 : params.samples;
+	float4 sum = 0;
+	for (uint i = 0; i < count; ++i)
+	{
+		float3 H = N;
+		if (r >= 0.04)
+		{
+			float2 u = frac(rotation + float(params.frame_index * count + i) * float2(0.754877666, 0.569840291));
+			u.x *= 0.85;
+			float3 h = sample_vndf(float3(dot(V, T), dot(V, B), max(dot(V, N), MIN_N_DOT_V)), r * r, u);
+			H = T * h.x + B * h.y + N * h.z;
+		}
+		float3 dir = reflect(-V, H);
+		// Fold below-horizon samples above the geometric surface, retaining unit sample weight.
+		dir -= 2 * min(dot(dir, Ng), 0.0) * Ng;
+		float distance;
+		float3 radiance = incoming_radiance(origin, dir, t_min, distance);
+		sum += float4(radiance, distance);
+	}
+	float4 avg = sum / count;
+	raw_reflection[tid.xy] = float4(clamp(sanitize_finite(avg.rgb), 0, 65504), avg.a);
+}

@@ -81,6 +81,10 @@ struct YutrelEnvironmentSettings {
 	float rtao_radius = 1.0f;
 	float rtao_intensity = 1.0f;
 	int rtao_samples = 1;
+	bool rt_reflection_enabled = true;
+	bool rt_reflection_half_resolution = true;
+	float rt_reflection_max_roughness = 0.6f;
+	int rt_reflection_samples = 1;
 
 	static YutrelEnvironmentSettings get(RID p_environment) {
 		if (p_environment.is_null()) {

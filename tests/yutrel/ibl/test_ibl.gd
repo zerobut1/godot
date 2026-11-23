@@ -234,6 +234,8 @@ func run() -> void:
 
 	sky = YutrelEnvironment.new()
 	sky.sky_color = Color.WHITE
+	# Measure the prefiltered sky for both the furnace and roughness/rotation checks.
+	sky.rt_reflection_enabled = false
 	sky.tone_mapping = YutrelEnvironment.TONE_MAPPING_NONE
 	view.add_child(sky)
 	await white_furnace()
