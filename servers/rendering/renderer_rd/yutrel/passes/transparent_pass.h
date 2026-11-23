@@ -61,7 +61,8 @@ public:
 	TransparentPass() : YutrelGeometryBatch(TRANSPARENT) {}
 	~TransparentPass();
 	void render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const LocalVector<DirectionalLightItem> &p_lights,
-			RID p_shadow_array, RID p_comparison_sampler, RID p_dfg_lut, const IBLPass &p_ibl, bool p_has_ibl, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi);
+			RID p_shadow_array, RID p_comparison_sampler, RID p_dfg_lut, const IBLPass &p_ibl, bool p_has_ibl, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi,
+			RenderingServerTypes::RenderInfo *p_render_info = nullptr);
 };
 
 } // namespace RendererSceneRenderImplementation

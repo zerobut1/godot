@@ -34,7 +34,7 @@
 
 namespace RendererSceneRenderImplementation {
 
-bool BasePass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const Color &p_clear_color) {
+bool BasePass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const Color &p_clear_color, RenderingServerTypes::RenderInfo *p_render_info) {
 	RID base_set;
 	if (has_draws()) {
 		ERR_FAIL_COND_V(!upload_geometry(), false);
@@ -44,11 +44,11 @@ bool BasePass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer
 				RD::Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 2, material_buffer.get_buffer()));
 		ERR_FAIL_COND_V(base_set.is_null(), false);
 	}
-	_record(p_targets, base_set, p_clear_color);
+	_record(p_targets, base_set, p_clear_color, p_render_info);
 	return true;
 }
 
-void BasePass::_record(const YutrelPipelineTargets &p_targets, RID p_uniform_set, const Color &p_clear_color) {
+void BasePass::_record(const YutrelPipelineTargets &p_targets, RID p_uniform_set, const Color &p_clear_color, RenderingServerTypes::RenderInfo *p_render_info) {
 	RD *rd = RD::get_singleton();
 	resolve_draws(rd->framebuffer_get_format(p_targets.base_framebuffer));
 	rd->draw_command_begin_label("Yutrel BasePass", Color(0.2, 0.7, 1.0));
@@ -60,7 +60,7 @@ void BasePass::_record(const YutrelPipelineTargets &p_targets, RID p_uniform_set
 	struct {
 		uint32_t draw_id;
 	} draw;
-	draw_range(list, 0, draws.size(), draw);
+	draw_range(list, 0, draws.size(), draw, p_render_info);
 	rd->draw_list_end();
 	rd->draw_command_end_label();
 }

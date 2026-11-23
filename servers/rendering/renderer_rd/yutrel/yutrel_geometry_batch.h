@@ -53,6 +53,7 @@ protected:
 
 	struct DrawItem {
 		uint32_t instance_id = 0;
+		uint32_t primitive_count = 0;
 		float distance = 0;
 		BatchMaterial material;
 		void *surface = nullptr;
@@ -82,15 +83,21 @@ protected:
 	bool bind_draw(RD::DrawListID p_list, const DrawItem &p_item, RID &r_material_set);
 
 	template <typename T>
-	void draw_range(RD::DrawListID p_list, uint32_t p_begin, uint32_t p_end, T &r_constants) {
+	void draw_range(RD::DrawListID p_list, uint32_t p_begin, uint32_t p_end, T &r_constants, RenderingServerTypes::RenderInfo *p_render_info = nullptr) {
 		RD *rd = RD::get_singleton();
 		RID bound_material_set;
+		int *info = p_render_info ? p_render_info->info[pass == SHADOW ? RSE::VIEWPORT_RENDER_INFO_TYPE_SHADOW : RSE::VIEWPORT_RENDER_INFO_TYPE_VISIBLE] : nullptr;
 		for (uint32_t i = p_begin; i < p_end; i++) {
 			const DrawItem &item = draws[i];
 			if (bind_draw(p_list, item, bound_material_set)) {
 				r_constants.draw_id = item.instance_id;
 				rd->draw_list_set_push_constant(p_list, &r_constants, sizeof(T));
 				rd->draw_list_draw(p_list, item.index_array.is_valid());
+				if (info) {
+					info[RSE::VIEWPORT_RENDER_INFO_OBJECTS_IN_FRAME] += 1;
+					info[RSE::VIEWPORT_RENDER_INFO_PRIMITIVES_IN_FRAME] += int(item.primitive_count);
+					info[RSE::VIEWPORT_RENDER_INFO_DRAW_CALLS_IN_FRAME] += 1;
+				}
 			}
 		}
 	}

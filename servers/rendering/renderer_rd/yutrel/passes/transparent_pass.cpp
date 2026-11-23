@@ -66,7 +66,8 @@ bool TransparentPass::_upload_lights(const LocalVector<DirectionalLightItem> &p_
 }
 
 void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const LocalVector<DirectionalLightItem> &p_lights,
-		RID p_shadow_array, RID p_comparison_sampler, RID p_dfg_lut, const IBLPass &p_ibl, bool p_has_ibl, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi) {
+		RID p_shadow_array, RID p_comparison_sampler, RID p_dfg_lut, const IBLPass &p_ibl, bool p_has_ibl, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi,
+		RenderingServerTypes::RenderInfo *p_render_info) {
 	ERR_FAIL_COND(!upload_geometry() || !_upload_lights(p_lights));
 	RD *rd = RD::get_singleton();
 	if (p_shadow_array.is_null()) {
@@ -126,7 +127,7 @@ void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame
 	rd->draw_command_begin_label("Yutrel TransparentPass", Color(0.5, 0.7, 0.9));
 	const RD::DrawListID list = rd->draw_list_begin(framebuffer, RD::DRAW_DEFAULT_ALL, {}, 0.0f, 0, p_targets.region, RDD::BreadcrumbMarker::TRANSPARENT_PASS);
 	rd->draw_list_bind_uniform_set(list, set, 0);
-	draw_range(list, 0, draws.size(), draw);
+	draw_range(list, 0, draws.size(), draw, p_render_info);
 	rd->draw_list_end();
 	rd->draw_command_end_label();
 }

@@ -35,7 +35,7 @@
 namespace RendererSceneRenderImplementation {
 
 class BasePass : public YutrelGeometryBatch {
-	void _record(const YutrelPipelineTargets &p_targets, RID p_uniform_set, const Color &p_clear_color);
+	void _record(const YutrelPipelineTargets &p_targets, RID p_uniform_set, const Color &p_clear_color, RenderingServerTypes::RenderInfo *p_render_info);
 
 public:
 	BasePass() : YutrelGeometryBatch(BASE) {}
@@ -43,7 +43,7 @@ public:
 			YutrelGeometryBatch &p_transparent, const Vector3 &p_camera_position, const Vector3 &p_camera_forward) {
 		add_geometry(p_instance, p_camera_mirrored, p_material_bridge, &p_transparent, p_camera_position, p_camera_forward);
 	}
-	bool render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const Color &p_clear_color);
+	bool render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const Color &p_clear_color, RenderingServerTypes::RenderInfo *p_render_info = nullptr);
 };
 
 } // namespace RendererSceneRenderImplementation

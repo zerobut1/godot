@@ -32,6 +32,7 @@
 
 #ifdef TOOLS_ENABLED
 #include "core/config/engine.h"
+#include "servers/display/display_server.h"
 #include "servers/rendering/rendering_server_default.h"
 #endif
 
@@ -226,7 +227,7 @@ bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector
 	h.config_version = v.config_version;
 	h.shader_version = version;
 #ifdef TOOLS_ENABLED
-	if (Engine::get_singleton()->is_editor_hint()) {
+	if (Engine::get_singleton()->is_editor_hint() && DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {
 		RenderingServerDefault::redraw_request();
 	}
 #endif

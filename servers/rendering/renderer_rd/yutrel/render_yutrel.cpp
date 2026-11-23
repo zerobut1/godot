@@ -40,6 +40,7 @@
 #include "servers/rendering/renderer_rd/storage_rd/light_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/utilities.h"
+#include "servers/rendering/rendering_server_globals.h"
 
 namespace RendererSceneRenderImplementation {
 
@@ -244,8 +245,9 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 #ifdef TOOLS_ENABLED
 		if (Engine::get_singleton()->is_editor_hint()) {
 			ERR_FAIL_COND(!base_pass.prepare() || !transparent_pass.prepare());
+			RENDER_TIMESTAMP("Yutrel BasePass");
 			_collect_geometry(*p_render_data);
-			ERR_FAIL_COND(!base_pass.render(targets, frame_buffer, p_default_color.srgb_to_linear()));
+			ERR_FAIL_COND(!base_pass.render(targets, frame_buffer, p_default_color.srgb_to_linear(), p_render_data->render_info));
 		}
 #endif
 		if (custom->path_tracer_accum.is_null()) {
@@ -253,11 +255,15 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 					RD::DATA_FORMAT_R32G32B32A32_SFLOAT, RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT);
 		}
 		targets.path_tracer_accum = custom->path_tracer_accum;
+		RENDER_TIMESTAMP("Yutrel RT Scene Update");
 		ERR_FAIL_COND(targets.path_tracer_accum.is_null() || !rt_scene.update(*p_render_data, material_bridge));
+		RENDER_TIMESTAMP("Yutrel Path Tracer");
 		ERR_FAIL_COND(!path_tracer_pass.render(targets, frame_buffer, frame, lights, environment, ibl_pass, rt_scene, custom->pt_state_hash, custom->pt_sample_count));
+		RENDER_TIMESTAMP("Yutrel Output");
 		output_pass.render(targets, p_render_data->environment, targets.path_tracer_accum);
 #ifdef TOOLS_ENABLED
 		if (Engine::get_singleton()->is_editor_hint()) {
+			RENDER_TIMESTAMP("Yutrel Editor Gizmos");
 			editor_gizmos.render(targets, *p_render_data->scene_data, frame);
 		}
 #endif
@@ -267,9 +273,12 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	if (!_prepare_passes()) {
 		return;
 	}
+	RENDER_TIMESTAMP("Yutrel Collect Geometry");
 	_collect_geometry(*p_render_data);
+	RENDER_TIMESTAMP("Yutrel CSM Shadows");
 	ERR_FAIL_COND(!csm_shadow_pass.render(*p_render_data, lights, environment.shadow_resolution, material_bridge));
-	if (!base_pass.render(targets, frame_buffer, p_default_color.srgb_to_linear())) {
+	RENDER_TIMESTAMP("Yutrel BasePass");
+	if (!base_pass.render(targets, frame_buffer, p_default_color.srgb_to_linear(), p_render_data->render_info)) {
 		return;
 	}
 
@@ -293,13 +302,24 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	const bool needs_rtao = environment.rtao_enabled && (final || lighting_only || indirect_only || rtao_mode) &&
 			base_pass.has_draws() && YutrelRayTracingScene::is_supported(2);
 	const bool ibl_ready = (needs_ddgi || draw_lighting || draw_sky || draw_transparent) && ibl_pass.prepare_environment(environment);
-	const bool rt_ready = (needs_ddgi || needs_rtao) && rt_scene.update(*p_render_data, material_bridge);
-	const bool ddgi_ready = needs_ddgi && ibl_ready && rt_ready &&
-			ddgi_pass.update(custom->ddgi_history, volume, lights, ibl_pass, sky_params, rt_scene, p_render_data->scene_data->time_step);
+	bool rt_ready = false;
+	if (needs_ddgi || needs_rtao) {
+		RENDER_TIMESTAMP("Yutrel RT Scene Update");
+		rt_ready = rt_scene.update(*p_render_data, material_bridge);
+	}
+	bool ddgi_ready = false;
+	if (needs_ddgi && ibl_ready && rt_ready) {
+		RENDER_TIMESTAMP("Yutrel DDGI");
+		ddgi_ready = ddgi_pass.update(custom->ddgi_history, volume, lights, ibl_pass, sky_params, rt_scene, p_render_data->scene_data->time_step);
+	}
 	if (!has_volume && custom->ddgi_history.bindings.volume.is_valid()) {
 		custom->ddgi_history.clear();
 	}
-	const bool rtao_ready = needs_rtao && rt_ready && rtao_pass.render(custom->rtao_history, targets, frame_buffer, frame, environment, rt_scene, p_render_data->scene_data->time_step);
+	bool rtao_ready = false;
+	if (needs_rtao && rt_ready) {
+		RENDER_TIMESTAMP("Yutrel RTAO");
+		rtao_ready = rtao_pass.render(custom->rtao_history, targets, frame_buffer, frame, environment, rt_scene, p_render_data->scene_data->time_step);
+	}
 	if (!rtao_ready) {
 		custom->rtao_history.has_history = false;
 	}
@@ -318,6 +338,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		rd->draw_list_end();
 	}
 	if (draw_lighting || debug_mask || debug_cascades) {
+		RENDER_TIMESTAMP("Yutrel Direct Lighting");
 		for (uint32_t i = 0; i < lights.size(); i++) {
 			const DirectionalLightItem &light = lights[i];
 			if (light.params.has_shadow) {
@@ -334,28 +355,35 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		}
 	}
 	if ((draw_lighting || (indirect_only && ddgi_ready && base_pass.has_draws())) && ibl_ready) {
+		RENDER_TIMESTAMP("Yutrel IBL / Indirect");
 		ibl_pass.render(targets, frame_buffer, directional_light_pass.get_dfg_lut(), sky_params, bindings, indirect_only);
 	}
 	if (draw_sky && ibl_ready) {
+		RENDER_TIMESTAMP("Yutrel Skybox");
 		skybox_pass.render(targets, frame_buffer, ibl_pass.get_source_cubemap(), ibl_pass.get_cube_sampler(), sky_params);
 	}
 
 	if (draw_transparent) {
+		RENDER_TIMESTAMP("Yutrel Transparent");
 		transparent_pass.render(targets, frame_buffer, lights, csm_shadow_pass.get_depth_array(), shadow_mask_pass.get_comparison_sampler(),
-				directional_light_pass.get_dfg_lut(), ibl_pass, ibl_ready, sky_params, bindings);
+				directional_light_pass.get_dfg_lut(), ibl_pass, ibl_ready, sky_params, bindings, p_render_data->render_info);
 	}
 
 	if (final || indirect_only) {
+		RENDER_TIMESTAMP("Yutrel Output");
 		output_pass.render(targets, p_render_data->environment);
 		if (probes && ddgi_ready) {
+			RENDER_TIMESTAMP("Yutrel DDGI Probes");
 			ddgi_pass.draw_probes(targets, frame_buffer, custom->ddgi_history, environment);
 		}
 	} else {
+		RENDER_TIMESTAMP("Yutrel Debug View");
 		debug_view_pass.render(targets, settings.debug_view, primary_shadow);
 	}
 
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
+		RENDER_TIMESTAMP("Yutrel Editor Gizmos");
 		editor_gizmos.render(targets, *p_render_data->scene_data, frame);
 	}
 #endif

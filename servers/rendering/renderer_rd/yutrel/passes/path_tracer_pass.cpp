@@ -31,6 +31,7 @@
 #include "path_tracer_pass.h"
 
 #include "core/config/engine.h"
+#include "servers/display/display_server.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
 #include "servers/rendering/rendering_server_default.h"
 
@@ -112,7 +113,8 @@ bool PathTracerPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_
 	rd->draw_command_end_label();
 	++r_sample_count;
 #ifdef TOOLS_ENABLED
-	if (r_sample_count < MAX_SAMPLES && Engine::get_singleton()->is_editor_hint()) {
+	if (r_sample_count < MAX_SAMPLES && Engine::get_singleton()->is_editor_hint() &&
+			DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {
 		RenderingServerDefault::redraw_request();
 	}
 #endif

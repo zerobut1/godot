@@ -127,9 +127,10 @@ void YutrelGeometryBatch::add_geometry(const RenderGeometryInstanceBase &p_insta
 		const uint64_t format = meshes->mesh_surface_get_format(surface);
 		constexpr uint64_t required = RSE::ARRAY_FORMAT_VERTEX | RSE::ARRAY_FORMAT_NORMAL;
 		constexpr uint64_t unsupported = RSE::ARRAY_FLAG_USE_2D_VERTICES | RSE::ARRAY_FORMAT_BONES | RSE::ARRAY_FORMAT_WEIGHTS;
+		const uint32_t vertices_drawn = meshes->mesh_surface_get_vertices_drawn_count(surface);
 		if ((format & required) != required || (format & unsupported) ||
 				meshes->mesh_surface_get_primitive(surface) != RSE::PRIMITIVE_TRIANGLES ||
-				meshes->mesh_surface_get_vertices_drawn_count(surface) == 0) {
+				vertices_drawn == 0) {
 			continue;
 		}
 
@@ -159,6 +160,7 @@ void YutrelGeometryBatch::add_geometry(const RenderGeometryInstanceBase &p_insta
 		DrawItem item;
 		item.surface = surface;
 		item.instance_id = batch.instances.size();
+		item.primitive_count = vertices_drawn / 3;
 		item.material = entry;
 		if (entry.transparent) {
 			const Vector3 world_center = p_instance.transform.xform(meshes->mesh_surface_get_aabb(surface).get_center());
