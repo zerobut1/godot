@@ -1,22 +1,30 @@
 import surface;
+import local_lights;
+import transparent_csm;
 import transparent_lighting;
 
 // Include the shared ray queries with the forward pass's shadow descriptor set.
 #define YUTREL_RT_SCENE_SET 2
-#include "rt_scene.slang"
+#include "local_light_ray.slang"
 
 struct RayTracedShadows : ITransparentShadows
 {
-	float3 origin;
-	float3 geometric_normal;
-	float t_min;
+	LocalLightRay ray;
+	CascadeShadows cascades;
+
+	float local_visibility(LocalLightData light, float3 L, float dist)
+	{
+		return ray.local_visibility(light, L, dist);
+	}
 
 	float visibility(TransparentDirectionalLight light, float3 world, float3 normal)
 	{
+		if (light.shadow_index != 0xffffffffu)
+			return cascades.visibility(light, world, normal);
 		if (light.shadow_opacity <= 0)
 			return 1;
 		// A single ray to the sun's center gives a stable shadow on forward-blended surfaces.
-		if (dot(geometric_normal, light.direction) <= 0 || trace_shadow_ray(origin, light.direction, t_min, 1e20))
+		if (dot(ray.normal, light.direction) <= 0 || trace_shadow_ray(ray.origin, light.direction, ray.t_min, 1e20))
 			return 1 - light.shadow_opacity;
 		return 1;
 	}
@@ -39,6 +47,7 @@ float4 fragment_main(VertexOutput input, bool is_front_face : SV_IsFrontFace) : 
 	float3 to_camera = frame.camera_position.xyz - world;
 	if (dot(Ng, frame.camera_forward.w != 0 ? frame.camera_forward.xyz : to_camera) < 0)
 		Ng = -Ng;
-	RayTracedShadows shadows = { offset_ray_origin(world, Ng), Ng, max(0.002, length(to_camera) * 0.0005) };
+	RayTracedShadows shadows = { { offset_ray_origin(world, Ng), Ng, max(0.002, length(to_camera) * 0.0005) },
+			{ dot(to_camera, frame.camera_forward.xyz), floor(input.position.xy) } };
 	return shade_transparent(input, is_front_face, world, shadows);
 }

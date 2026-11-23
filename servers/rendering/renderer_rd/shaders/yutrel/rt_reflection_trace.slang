@@ -5,6 +5,8 @@ import ibl_common;
 import ibl_lighting;
 import rt_reflection_common;
 import rt_scene;
+import local_lights;
+import local_light_ray;
 import rtao_common;
 
 struct DirectionalLight
@@ -37,6 +39,7 @@ struct TraceParams
 	uint pixel_scale, dispatch_rows;
 	uint samples, frame_index, light_count;
 	float sky_intensity, sin_rot, cos_rot, max_mip;
+	uint local_count;
 };
 [[vk::push_constant]] ConstantBuffer<TraceParams> params;
 
@@ -72,6 +75,18 @@ float3 incoming_radiance(float3 origin, float3 dir, float t_min, float r, float2
 		float3 H = normalize_or(L - dir, N);
 		radiance += evaluate_brdf(diffuse, f0, roughness * roughness, NoV, NoL, saturate(dot(N, H)), saturate(dot(L, H)), 1)
 				* lights[i].radiance * NoL;
+	}
+	LocalLightRay shadow = { hit_origin, hit.geometric_normal, hit_t_min };
+	for (uint i = 0; i < params.local_count; ++i)
+	{
+		float3 L;
+		float NoL;
+		float3 incident = shadow.incident_light(local_lights[i], hit.world_pos, N, L, NoL);
+		if (any(incident != 0))
+		{
+			float3 H = normalize_or(L - dir, N);
+			radiance += incident * evaluate_brdf(diffuse, f0, roughness * roughness, NoV, NoL, saturate(dot(N, H)), saturate(dot(L, H)), 1);
+		}
 	}
 	IBLParams sky = { params.sky_intensity, params.sin_rot, params.cos_rot, params.max_mip, 0, 0, 1 };
 	DDGIResources probes = { irradiance, distance_atlas, probe_data, linear_clamp };

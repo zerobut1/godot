@@ -119,7 +119,7 @@ bool RTReflectionPass::History::ensure_size(Size2i p_full_size, Size2i p_work_si
 }
 
 bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const YutrelFrameData &p_frame,
-		const YutrelEnvironmentSettings &p_environment, const LocalVector<DirectionalLightItem> &p_lights, const IBLPass &p_ibl,
+		const YutrelEnvironmentSettings &p_environment, const LocalVector<DirectionalLightItem> &p_lights, const LocalLightPass &p_local, const IBLPass &p_ibl,
 		const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi, YutrelRayTracingScene &p_scene, double p_time_step) {
 	const bool half_res = p_environment.rt_reflection_half_resolution;
 	const Size2i full_size = p_targets.region.size;
@@ -134,7 +134,7 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 	ERR_FAIL_COND_V(!classify_ready || !trace_ready || !temporal_ready || !reproject_ready || !prefilter_ready || !upsample_ready || !h.ensure_size(full_size, work_size, half_res), false);
 	const uint64_t version = classify.shader.get_version() + trace.shader.get_version() + temporal.shader.get_version() + reproject.shader.get_version() + prefilter.shader.get_version() + (half_res ? upsample.shader.get_version() : 0);
 	LocalVector<DirectionalLightParams> lights;
-	uint64_t lighting_hash = rt_hash_bytes(5381, &p_sky, sizeof(p_sky));
+	uint64_t lighting_hash = rt_hash_bytes(p_local.get_hash(), &p_sky, sizeof(p_sky));
 	lighting_hash = rt_hash_bytes(lighting_hash, &p_environment.linear_sky_color, sizeof(Color));
 	lighting_hash = hash_djb2_one_64(uint32_t(p_environment.sky_mode), lighting_hash);
 	lighting_hash = hash_djb2_one_64(p_environment.sky_texture_rid.get_id(), lighting_hash);
@@ -177,7 +177,7 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 12, p_ddgi.irradiance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, p_ddgi.distance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_ddgi.probe_data),
-			Uniform(RD::UNIFORM_TYPE_SAMPLER, 15, linear_clamp));
+			Uniform(RD::UNIFORM_TYPE_SAMPLER, 15, linear_clamp), p_local.light_uniform());
 	const Uniform prev_frame(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 1, h.prev_frame_buffer);
 	const RID reproject_set = sets->get_cache(reproject.shader.get_shader(), 0, frame, prev_frame,
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, p_targets.gbuffer_b), Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, p_targets.scene_depth),
@@ -219,7 +219,8 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 		uint32_t samples, frame_index, light_count;
 		YutrelSkyParams sky;
 		float max_mip;
-	} trace_params = { full_size, pixel_scale, dispatch_rows, uint32_t(p_environment.rt_reflection_samples), frame_index, p_lights.size(), p_sky, p_ibl.get_prefilter_max_mip() };
+		uint32_t local_count;
+	} trace_params = { full_size, pixel_scale, dispatch_rows, uint32_t(p_environment.rt_reflection_samples), frame_index, p_lights.size(), p_sky, p_ibl.get_prefilter_max_mip(), p_local.get_count() };
 	const bool same_scene = reuse && h.last_scene_hash == p_scene.get_scene_hash();
 	const bool stationary = reuse && memcmp(p_frame.view_projection, h.prev_frame.view_projection, sizeof(p_frame.view_projection)) == 0;
 	struct ReprojectParams {
@@ -234,7 +235,7 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 		float max_roughness;
 		uint32_t index, has_history, stationary, scene_changed;
 	} upsample_params = { p_environment.rt_reflection_max_roughness, frame_index, reuse, stationary, !same_scene };
-	static_assert(sizeof(ClassifyParams) == 28 && sizeof(TraceParams) == 44 && sizeof(ReprojectParams) == 24 && sizeof(ResolveParams) == 12 && sizeof(UpsampleParams) == 20);
+	static_assert(sizeof(ClassifyParams) == 28 && sizeof(TraceParams) == 48 && sizeof(ReprojectParams) == 24 && sizeof(ResolveParams) == 12 && sizeof(UpsampleParams) == 20);
 
 	// RD tracks indirect and shader reads separately. Keep the count in ray_list[0]
 	// so trace can read it while the command processor consumes the indirect buffer.

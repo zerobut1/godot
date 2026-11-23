@@ -36,6 +36,7 @@
 #include "passes/debug_view_pass.h"
 #include "passes/directional_light_pass.h"
 #include "passes/ibl_pass.h"
+#include "passes/local_light_pass.h"
 #include "passes/output_pass.h"
 #include "passes/path_tracer_pass.h"
 #include "passes/rt_shadow_pass.h"
@@ -83,6 +84,7 @@ class RenderYutrel : public RendererSceneRenderRD {
 	CSMShadowPass csm_shadow_pass;
 	ShadowMaskPass shadow_mask_pass;
 	DirectionalLightPass directional_light_pass;
+	LocalLightPass local_light_pass;
 	IBLPass ibl_pass;
 	SkyboxPass skybox_pass;
 	TransparentPass transparent_pass;

@@ -2,6 +2,8 @@ import common;
 import brdf;
 import ibl_common;
 import rt_scene;
+import local_lights;
+import local_light_ray;
 import ddgi_common;
 
 struct DirectionalLight
@@ -25,6 +27,7 @@ struct TraceParams
 {
 	uint light_count, has_tlas;
 	float sky_intensity, sky_sin_rot, sky_cos_rot;
+	uint local_count;
 };
 [[vk::push_constant]] ConstantBuffer<TraceParams> params;
 
@@ -82,6 +85,13 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 				float NoL = dot(hit.shading_normal, L);
 				if (NoL > 0 && !trace_shadow_ray(origin, L, 0, 1e20))
 					radiance += albedo * (NoL / PI) * lights[i].radiance;
+			}
+			LocalLightRay shadow = { origin, hit.geometric_normal, 0 };
+			for (uint i = 0; i < params.local_count; ++i)
+			{
+				float3 L;
+				float NoL;
+				radiance += (albedo / PI) * shadow.incident_light(local_lights[i], hit.world_pos, hit.shading_normal, L, NoL);
 			}
 			if (volume.infinite_bounces != 0 && volume.reset_history == 0)
 			{

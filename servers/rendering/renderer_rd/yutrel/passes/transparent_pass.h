@@ -31,6 +31,7 @@
 #pragma once
 
 #include "directional_light_pass.h"
+#include "local_light_pass.h"
 #include "ibl_pass.h"
 
 #include "servers/rendering/renderer_rd/yutrel/yutrel_geometry_batch.h"
@@ -60,15 +61,15 @@ class TransparentPass : public YutrelGeometryBatch {
 	RID fallback_sh;
 
 	bool _upload_lights(const LocalVector<DirectionalLightItem> &p_lights, const YutrelRayTracingScene *p_rt_scene);
-	RID _get_csm_set(RID p_shadow_array, RID p_comparison_sampler);
+	RID _get_csm_set(RID p_shader, RID p_shadow_array, RID p_comparison_sampler);
 
 public:
-	// Material maps, DFG, prefiltered sky and three DDGI probe textures.
-	static constexpr uint32_t RT_SAMPLED_IMAGES = YutrelMaterialBridge::TEXTURE_COUNT + 5;
+	// Material maps, DFG, prefiltered sky, three DDGI probe textures and the CSM atlas.
+	static constexpr uint32_t RT_SAMPLED_IMAGES = YutrelMaterialBridge::TEXTURE_COUNT + 6;
 
 	TransparentPass() : YutrelGeometryBatch(TRANSPARENT) {}
 	~TransparentPass();
-	void render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const LocalVector<DirectionalLightItem> &p_lights,
+	void render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const LocalVector<DirectionalLightItem> &p_lights, const LocalLightPass &p_local,
 			YutrelRayTracingScene *p_rt_scene, RID p_shadow_array, RID p_comparison_sampler, RID p_dfg_lut, const IBLPass &p_ibl, bool p_has_ibl, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi,
 			RenderingServerTypes::RenderInfo *p_render_info = nullptr);
 };

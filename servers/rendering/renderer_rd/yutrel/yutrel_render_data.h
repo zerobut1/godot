@@ -190,7 +190,7 @@ inline bool YutrelComputeShader::prepare(const char *p_path) {
 	return pipeline.is_valid();
 }
 
-inline void draw_fullscreen(Span<char> p_label, const Color &p_color, const Rect2i &p_region, RID p_framebuffer, PipelineCacheRD &p_pipeline, RID p_uniform_set, const void *p_constants = nullptr, uint32_t p_constants_size = 0, bool p_clear = false) {
+inline void draw_fullscreen(Span<char> p_label, const Color &p_color, const Rect2i &p_region, RID p_framebuffer, PipelineCacheRD &p_pipeline, RID p_uniform_set, const void *p_constants = nullptr, uint32_t p_constants_size = 0, bool p_clear = false, RID p_scene_set = RID()) {
 	RD *rd = RD::get_singleton();
 	const RID pipeline = p_pipeline.get_render_pipeline(RD::INVALID_FORMAT_ID, rd->framebuffer_get_format(p_framebuffer));
 	ERR_FAIL_COND(pipeline.is_null() || p_uniform_set.is_null());
@@ -200,6 +200,9 @@ inline void draw_fullscreen(Span<char> p_label, const Color &p_color, const Rect
 	const RD::DrawListID list = rd->draw_list_begin(p_framebuffer, p_clear ? RD::DRAW_CLEAR_COLOR_0 : RD::DRAW_DEFAULT_ALL, clear_colors, 0.0f, 0, p_region);
 	rd->draw_list_bind_render_pipeline(list, pipeline);
 	rd->draw_list_bind_uniform_set(list, p_uniform_set, 0);
+	if (p_scene_set.is_valid()) {
+		rd->draw_list_bind_uniform_set(list, p_scene_set, 1);
+	}
 	if (p_constants) {
 		rd->draw_list_set_push_constant(list, p_constants, p_constants_size);
 	}

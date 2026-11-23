@@ -31,6 +31,7 @@
 #pragma once
 
 #include "directional_light_pass.h"
+#include "local_light_pass.h"
 #include "ibl_pass.h"
 
 #include "servers/rendering/renderer_rd/yutrel/yutrel_rt_scene.h"
@@ -46,7 +47,7 @@ public:
 	static bool is_supported();
 	~PathTracerPass();
 	bool render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const YutrelFrameData &p_frame,
-			const LocalVector<DirectionalLightItem> &p_lights, const YutrelEnvironmentSettings &p_environment,
+			const LocalVector<DirectionalLightItem> &p_lights, const LocalLightPass &p_local, const YutrelEnvironmentSettings &p_environment,
 			const IBLPass &p_ibl, YutrelRayTracingScene &p_scene, uint64_t &r_state_hash, uint32_t &r_sample_count);
 };
 

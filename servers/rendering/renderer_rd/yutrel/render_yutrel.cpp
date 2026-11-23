@@ -247,6 +247,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	if (!environment.rt_reflection_enabled && custom->rt_reflection_history.get_output().is_valid()) {
 		custom->rt_reflection_history.clear();
 	}
+	ERR_FAIL_COND(!local_light_pass.collect(*p_render_data));
 	LocalVector<DirectionalLightItem> lights = DirectionalLightPass::collect(*p_render_data);
 	if (settings.debug_view == DebugViewMode::PATH_TRACER) {
 		custom->rt_shadow_history.invalidate();
@@ -269,7 +270,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		RENDER_TIMESTAMP("Yutrel RT Scene Update");
 		ERR_FAIL_COND(targets.path_tracer_accum.is_null() || !rt_scene.update(*p_render_data, material_bridge));
 		RENDER_TIMESTAMP("Yutrel Path Tracer");
-		ERR_FAIL_COND(!path_tracer_pass.render(targets, frame_buffer, frame, lights, environment, ibl_pass, rt_scene, custom->pt_state_hash, custom->pt_sample_count));
+		ERR_FAIL_COND(!path_tracer_pass.render(targets, frame_buffer, frame, lights, local_light_pass, environment, ibl_pass, rt_scene, custom->pt_state_hash, custom->pt_sample_count));
 		RENDER_TIMESTAMP("Yutrel Output");
 		output_pass.render(targets, p_render_data->environment, targets.path_tracer_accum);
 #ifdef TOOLS_ENABLED
@@ -294,8 +295,9 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	const bool draw_transparent = (final || lighting_only) && transparent_pass.has_draws();
 	const bool debug_mask = settings.debug_view == DebugViewMode::SHADOW_MASK;
 	const bool debug_cascades = settings.debug_view == DebugViewMode::CSM_CASCADES;
+	const bool transparent_rt_supported = draw_transparent && YutrelRayTracingScene::is_supported(TransparentPass::RT_SAMPLED_IMAGES);
 	const bool want_rt_shadow = environment.shadow_mode == ShadowMode::RAY_TRACED && !debug_cascades &&
-			YutrelRayTracingScene::is_supported(draw_transparent ? TransparentPass::RT_SAMPLED_IMAGES : 2);
+			YutrelRayTracingScene::is_supported(2) && (!draw_transparent || transparent_rt_supported);
 	bool has_shadow_light = false;
 	for (const DirectionalLightItem &light : lights) {
 		if (light.shadow_enabled) {
@@ -331,14 +333,17 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	const bool ibl_ready = (needs_rt_reflection || needs_ddgi || draw_lighting || draw_sky || draw_transparent) && ibl_pass.prepare_environment(environment);
 	bool rt_ready = false;
 	const bool needs_rt_shadow = want_rt_shadow && has_shadow_light && (draw_lighting || draw_transparent || debug_mask);
-	if (needs_ddgi || needs_rtao || needs_rt_shadow || needs_rt_reflection) {
+	const bool opaque_local_rt = draw_lighting && local_light_pass.has_shadows() && YutrelRayTracingScene::is_supported(LocalLightPass::RT_SAMPLED_IMAGES);
+	const bool transparent_local_rt = transparent_rt_supported && local_light_pass.has_shadows();
+	const bool needs_local_rt_shadow = opaque_local_rt || transparent_local_rt;
+	if (needs_ddgi || needs_rtao || needs_rt_shadow || needs_rt_reflection || needs_local_rt_shadow) {
 		RENDER_TIMESTAMP("Yutrel RT Scene Update");
 		rt_ready = rt_scene.update(*p_render_data, material_bridge);
 	}
 	bool ddgi_ready = false;
 	if (needs_ddgi && ibl_ready && rt_ready) {
 		RENDER_TIMESTAMP("> Yutrel DDGI");
-		ddgi_ready = ddgi_pass.update(custom->ddgi_history, volume, lights, ibl_pass, sky_params, rt_scene, p_render_data->scene_data->time_step);
+		ddgi_ready = ddgi_pass.update(custom->ddgi_history, volume, lights, local_light_pass, ibl_pass, sky_params, rt_scene, p_render_data->scene_data->time_step);
 		RENDER_TIMESTAMP("< Yutrel DDGI");
 	}
 	if (!has_volume && custom->ddgi_history.bindings.volume.is_valid()) {
@@ -363,7 +368,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	bool rt_reflection_ready = false;
 	if (needs_rt_reflection && rt_ready && ibl_ready) {
 		RENDER_TIMESTAMP("> Yutrel RT Reflection");
-		rt_reflection_ready = rt_reflection_pass.render(custom->rt_reflection_history, targets, frame_buffer, frame, environment, lights,
+		rt_reflection_ready = rt_reflection_pass.render(custom->rt_reflection_history, targets, frame_buffer, frame, environment, lights, local_light_pass,
 				ibl_pass, sky_params, bindings, rt_scene, p_render_data->scene_data->time_step);
 		RENDER_TIMESTAMP("< Yutrel RT Reflection");
 	}
@@ -373,7 +378,8 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	targets.rt_reflection_texture = rt_reflection_ready ? custom->rt_reflection_history.get_output() : rt_reflection_pass.get_fallback_reflection();
 	bool primary_shadow = false;
 	bool ran_rt_shadow = false;
-	if (indirect_only || (lighting_only && (!draw_lighting || lights.is_empty()))) {
+	const bool draw_local = draw_lighting && local_light_pass.get_count() > 0;
+	if (indirect_only || (lighting_only && (!draw_lighting || (lights.is_empty() && !draw_local)))) {
 		rd->draw_list_begin(targets.lighting_framebuffer, RD::DRAW_CLEAR_COLOR_0, { Color(0, 0, 0, indirect_only ? 1 : 0) }, 0.0f, 0, targets.region);
 		rd->draw_list_end();
 	}
@@ -405,6 +411,12 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 			}
 		}
 	}
+	if (draw_local || draw_transparent) {
+		ERR_FAIL_COND(!local_light_pass.build_clusters(*p_render_data, targets.region));
+	}
+	if (draw_local) {
+		local_light_pass.render(targets, frame_buffer, directional_light_pass.get_dfg_lut(), opaque_local_rt && rt_ready ? &rt_scene : nullptr, lighting_only && lights.is_empty());
+	}
 	if (ran_rt_shadow) {
 		custom->rt_shadow_history.finish_frame(frame);
 	} else {
@@ -421,7 +433,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 
 	if (draw_transparent) {
 		RENDER_TIMESTAMP("Yutrel Transparent");
-		transparent_pass.render(targets, frame_buffer, lights, needs_rt_shadow && rt_ready ? &rt_scene : nullptr, csm_shadow_pass.get_depth_array(), shadow_mask_pass.get_comparison_sampler(),
+		transparent_pass.render(targets, frame_buffer, lights, local_light_pass, (needs_rt_shadow || transparent_local_rt) && rt_ready ? &rt_scene : nullptr, csm_shadow_pass.get_depth_array(), shadow_mask_pass.get_comparison_sampler(),
 				directional_light_pass.get_dfg_lut(), ibl_pass, ibl_ready, sky_params, bindings, p_render_data->render_info);
 	}
 

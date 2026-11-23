@@ -55,7 +55,7 @@ bool TransparentPass::_upload_lights(const LocalVector<DirectionalLightItem> &p_
 		memcpy(light.direction, item.params.direction, sizeof(light.direction));
 		memcpy(light.radiance, item.params.radiance, sizeof(light.radiance));
 		light.shadow_opacity = trace_shadows && item.shadow_enabled ? item.shadow_opacity : 0;
-		if (!p_rt_scene && item.shadow.cascade_count > 0) {
+		if (item.shadow.cascade_count > 0) {
 			light.shadow_index = shadows.size();
 			shadows.push_back(item.shadow);
 		}
@@ -65,16 +65,13 @@ bool TransparentPass::_upload_lights(const LocalVector<DirectionalLightItem> &p_
 		lights.push_back({});
 	}
 	ERR_FAIL_COND_V(!light_buffer.upload(lights, "Yutrel Transparent Lights"), false);
-	if (p_rt_scene) {
-		return true;
-	}
 	if (shadows.is_empty()) {
 		shadows.push_back({});
 	}
 	return shadow_buffer.upload(shadows, "Yutrel Transparent CSM");
 }
 
-RID TransparentPass::_get_csm_set(RID p_shadow_array, RID p_comparison_sampler) {
+RID TransparentPass::_get_csm_set(RID p_shader, RID p_shadow_array, RID p_comparison_sampler) {
 	RD *rd = RD::get_singleton();
 	if (p_shadow_array.is_null()) {
 		if (fallback_depth.is_null()) {
@@ -89,20 +86,21 @@ RID TransparentPass::_get_csm_set(RID p_shadow_array, RID p_comparison_sampler) 
 		}
 		p_shadow_array = fallback_depth;
 	}
-	return UniformSetCacheRD::get_singleton()->get_cache(shader.get_shader(), 2,
+	return UniformSetCacheRD::get_singleton()->get_cache(p_shader, 3,
 			RD::Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 0, shadow_buffer.get_buffer()),
 			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 1, p_shadow_array),
 			RD::Uniform(RD::UNIFORM_TYPE_SAMPLER, 2, p_comparison_sampler));
 }
 
-void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const LocalVector<DirectionalLightItem> &p_lights,
+void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const LocalVector<DirectionalLightItem> &p_lights, const LocalLightPass &p_local,
 		YutrelRayTracingScene *p_rt_scene, RID p_shadow_array, RID p_comparison_sampler, RID p_dfg_lut, const IBLPass &p_ibl, bool p_has_ibl, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi,
 		RenderingServerTypes::RenderInfo *p_render_info) {
 	ERR_FAIL_COND(p_rt_scene && !prepare_shader(rt_shader, rt_pipelines, "transparent_rt.slang"));
 	ERR_FAIL_COND(!upload_geometry() || !_upload_lights(p_lights, p_rt_scene));
 	const RID active_shader = p_rt_scene ? rt_shader.get_shader() : shader.get_shader();
-	const RID shadow_set = p_rt_scene ? p_rt_scene->get_uniform_set(active_shader, 2) : _get_csm_set(p_shadow_array, p_comparison_sampler);
-	ERR_FAIL_COND(shadow_set.is_null());
+	const RID scene_set = p_rt_scene ? p_rt_scene->get_uniform_set(active_shader, 2) : RID();
+	const RID csm_set = _get_csm_set(active_shader, p_shadow_array, p_comparison_sampler);
+	ERR_FAIL_COND(csm_set.is_null() || (p_rt_scene && scene_set.is_null()));
 	RD *rd = RD::get_singleton();
 	if (!p_has_ibl && fallback_sh.is_null()) {
 		fallback_sh = rd->storage_buffer_create(9 * 4 * sizeof(float));
@@ -113,7 +111,7 @@ void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame
 	const RID cube = p_has_ibl ? p_ibl.get_prefilter_cubemap() : TextureStorage::get_singleton()->texture_rd_get_default(TextureStorage::DEFAULT_RD_TEXTURE_CUBEMAP_BLACK);
 	const RID linear = RendererRD::MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
 	using Uniform = RD::Uniform;
-	const RID set = UniformSetCacheRD::get_singleton()->get_cache(active_shader, 0,
+	const RID set = p_local.get_clustered_set(active_shader, {
 			Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, p_frame_buffer),
 			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 1, instance_buffer.get_buffer()),
 			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 2, material_buffer.get_buffer()),
@@ -126,7 +124,8 @@ void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame
 			Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 12, p_ddgi.volume),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, p_ddgi.irradiance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_ddgi.distance),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 15, p_ddgi.probe_data));
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 15, p_ddgi.probe_data),
+	});
 	const RID framebuffer = FramebufferCacheRD::get_singleton()->get_cache(p_targets.scene_color, p_targets.scene_depth);
 	ERR_FAIL_COND(set.is_null() || framebuffer.is_null());
 
@@ -145,7 +144,10 @@ void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame
 	rd->draw_command_begin_label("Yutrel TransparentPass", Color(0.5, 0.7, 0.9));
 	const RD::DrawListID list = rd->draw_list_begin(framebuffer, RD::DRAW_DEFAULT_ALL, {}, 0.0f, 0, p_targets.region, RDD::BreadcrumbMarker::TRANSPARENT_PASS);
 	rd->draw_list_bind_uniform_set(list, set, 0);
-	rd->draw_list_bind_uniform_set(list, shadow_set, 2);
+	if (scene_set.is_valid()) {
+		rd->draw_list_bind_uniform_set(list, scene_set, 2);
+	}
+	rd->draw_list_bind_uniform_set(list, csm_set, 3);
 	draw_range(list, 0, draws.size(), draw, p_render_info);
 	rd->draw_list_end();
 	rd->draw_command_end_label();

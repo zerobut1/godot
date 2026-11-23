@@ -4,6 +4,7 @@ import ibl_lighting;
 import ddgi_common;
 import pbr;
 import surface;
+import local_lights;
 
 public struct TransparentDirectionalLight
 {
@@ -13,7 +14,7 @@ public struct TransparentDirectionalLight
 	public uint shadow_index;
 };
 
-public interface ITransparentShadows
+public interface ITransparentShadows : ILocalLightShadows
 {
 	float visibility(TransparentDirectionalLight light, float3 world, float3 normal);
 }
@@ -67,6 +68,7 @@ public float4 shade_transparent<S : ITransparentShadows>(VertexOutput input, boo
 				color += direct_brdf(p, L, NoL) * light.radiance * (NoL * visibility);
 			}
 		}
+		color += shade_cluster(input.position.xy, world, p, shadows);
 		if (draw.has_ibl != 0)
 		{
 			IBLParams sky = { draw.sky_intensity, draw.sky_sin_rot, draw.sky_cos_rot, draw.prefilter_max_mip, 0, 0, 1 };

@@ -1,0 +1,29 @@
+[gd_scene format=3]
+
+[sub_resource type="StandardMaterial3D" id="White"]
+metallic_specular = 0.0
+
+[sub_resource type="QuadMesh" id="Quad"]
+material = SubResource("White")
+size = Vector2(12, 8)
+
+[node name="LocalLights" type="Node3D"]
+
+[node name="Environment" type="YutrelEnvironment" parent="."]
+tone_mapping = 3
+sky_intensity = 0.0
+rtao_enabled = false
+rt_reflection_enabled = false
+
+[node name="Rig" type="Node3D" parent="."]
+
+[node name="Receiver" type="MeshInstance3D" parent="Rig"]
+mesh = SubResource("Quad")
+
+[node name="Omni" type="OmniLight3D" parent="Rig"]
+position = Vector3(0, 0, 2)
+light_color = Color(1, 0.5, 0, 1)
+light_energy = 4.0
+omni_range = 4.0
+omni_attenuation = 2.0
+shadow_enabled = true

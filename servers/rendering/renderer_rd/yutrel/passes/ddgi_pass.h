@@ -31,6 +31,7 @@
 #pragma once
 
 #include "directional_light_pass.h"
+#include "local_light_pass.h"
 #include "ibl_pass.h"
 
 #include "core/math/random_pcg.h"
@@ -65,7 +66,7 @@ public:
 		~History() { clear(); }
 	};
 
-	bool update(History &r_history, const YutrelDDGISettings &p_volume, const LocalVector<DirectionalLightItem> &p_lights,
+	bool update(History &r_history, const YutrelDDGISettings &p_volume, const LocalVector<DirectionalLightItem> &p_lights, const LocalLightPass &p_local,
 			const IBLPass &p_ibl, const YutrelSkyParams &p_sky, YutrelRayTracingScene &p_scene, double p_time_step);
 	void draw_probes(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const History &p_history, const YutrelEnvironmentSettings &p_environment);
 };

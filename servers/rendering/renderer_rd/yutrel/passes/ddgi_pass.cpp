@@ -91,7 +91,7 @@ void DDGIPass::History::clear() {
 	counts = Vector3i();
 }
 
-bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector<DirectionalLightItem> &p_lights,
+bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector<DirectionalLightItem> &p_lights, const LocalLightPass &p_local,
 		const IBLPass &p_ibl, const YutrelSkyParams &p_sky, YutrelRayTracingScene &p_scene, double p_time_step) {
 	const bool trace_ready = trace.prepare("ddgi_probe_trace.slang");
 	const bool irr_ready = blend_irradiance.prepare("ddgi_blend_irradiance.slang");
@@ -185,7 +185,7 @@ bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, h.bindings.distance),
 			Uniform(RD::UNIFORM_TYPE_SAMPLER, 6, linear_sampler()),
 			Uniform(RD::UNIFORM_TYPE_IMAGE, 7, h.ray_data),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 8, h.bindings.probe_data));
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 8, h.bindings.probe_data), p_local.light_uniform());
 	const RID scene_set = p_scene.get_uniform_set(trace.shader.get_shader());
 	const Uniform probes(RD::UNIFORM_TYPE_TEXTURE, 3, h.bindings.probe_data);
 	const RID irr_set = sets->get_cache(blend_irradiance.shader.get_shader(), 0, ubo, samples, Uniform(RD::UNIFORM_TYPE_IMAGE, 2, h.bindings.irradiance), probes);
@@ -203,8 +203,9 @@ bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector
 	struct TraceParams {
 		uint32_t lights, has_tlas;
 		YutrelSkyParams sky;
-	} params = { p_lights.size(), p_scene.has_tlas(), p_sky };
-	static_assert(sizeof(TraceParams) == 20);
+		uint32_t local_count;
+	} params = { p_lights.size(), p_scene.has_tlas(), p_sky, p_local.get_count() };
+	static_assert(sizeof(TraceParams) == 24);
 	RENDER_TIMESTAMP("Yutrel DDGI Trace");
 	rd->draw_command_begin_label("Yutrel DDGIProbeTrace", Color(0.3f, 0.8f, 0.6f));
 	const RD::ComputeListID list = rd->compute_list_begin();

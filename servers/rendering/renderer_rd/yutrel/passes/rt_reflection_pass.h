@@ -32,6 +32,7 @@
 
 #include "../yutrel_rt_scene.h"
 #include "directional_light_pass.h"
+#include "local_light_pass.h"
 #include "ibl_pass.h"
 
 namespace RendererSceneRenderImplementation {
@@ -80,7 +81,7 @@ public:
 	~RTReflectionPass();
 	RID get_fallback_reflection();
 	bool render(History &r_history, const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const YutrelFrameData &p_frame,
-			const YutrelEnvironmentSettings &p_environment, const LocalVector<DirectionalLightItem> &p_lights, const IBLPass &p_ibl,
+			const YutrelEnvironmentSettings &p_environment, const LocalVector<DirectionalLightItem> &p_lights, const LocalLightPass &p_local, const IBLPass &p_ibl,
 			const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi, YutrelRayTracingScene &p_scene, double p_time_step);
 };
 

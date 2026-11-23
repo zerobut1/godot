@@ -1,25 +1,7 @@
 import common;
-import csm;
+import transparent_csm;
 import surface;
 import transparent_lighting;
-
-[[vk::binding(0, 2)]] StructuredBuffer<CSMShadowData> csm_shadows;
-[[vk::binding(1, 2)]] Texture2DArray<float> csm_shadow_array;
-[[vk::binding(2, 2)]] SamplerComparisonState comparison_sampler;
-
-struct CascadeShadows : ITransparentShadows
-{
-	float distance;
-	float2 pixel;
-
-	float visibility(TransparentDirectionalLight light, float3 world, float3 normal)
-	{
-		if (light.shadow_index == 0xffffffffu)
-			return 1;
-		CSMShadowData shadow = csm_shadows[light.shadow_index];
-		return evaluate_csm_shadow(shadow, csm_shadow_array, comparison_sampler, select_cascade(shadow, distance), world, normal, pixel);
-	}
-};
 
 [shader("vertex")]
 VertexOutput vertex_main(VertexInput input)

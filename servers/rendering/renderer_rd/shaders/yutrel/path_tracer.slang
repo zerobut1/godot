@@ -2,6 +2,8 @@ import common;
 import brdf;
 import ibl_common;
 import rt_scene;
+import local_lights;
+import local_light_ray;
 
 struct DirectionalLight
 {
@@ -20,6 +22,7 @@ struct Params
 	uint2 region_origin, region_size;
 	uint sample_index, light_count, has_tlas, has_sky;
 	float sky_intensity, sky_sin_rot, sky_cos_rot;
+	uint local_count;
 };
 [[vk::push_constant]] ConstantBuffer<Params> params;
 
@@ -82,6 +85,19 @@ float3 integrate(float3 origin, float3 dir, inout uint rng)
 				float3 h = normalize(v + l);
 				float3 brdf = evaluate_brdf(diffuse, f0, alpha, nv, nl, saturate(dot(n, h)), saturate(dot(l, h)), 1);
 				radiance += throughput * brdf * lights[i].radiance * nl;
+			}
+		}
+
+		LocalLightRay shadow = { origin, hit.geometric_normal, 0 };
+		for (uint i = 0; i < params.local_count; ++i)
+		{
+			float3 l;
+			float nl;
+			float3 incident = shadow.incident_light(local_lights[i], hit.world_pos, n, l, nl);
+			if (any(incident != 0))
+			{
+				float3 h = normalize_or(v + l, n);
+				radiance += throughput * incident * evaluate_brdf(diffuse, f0, alpha, nv, nl, saturate(dot(n, h)), saturate(dot(l, h)), 1);
 			}
 		}
 
