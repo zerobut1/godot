@@ -88,7 +88,7 @@ bool CSMShadowPass::render(const RenderDataRD &p_data, LocalVector<DirectionalLi
 	correction.set_depth_correction(true, true, true);
 	for (DirectionalLightItem &item : r_lights) {
 		const RID base = storage->light_instance_get_base_light(item.instance);
-		if (!storage->light_has_shadow(base)) {
+		if (!item.shadow_enabled) {
 			continue;
 		}
 		const auto mode = storage->light_directional_get_shadow_mode(base);
@@ -113,7 +113,7 @@ bool CSMShadowPass::render(const RenderDataRD &p_data, LocalVector<DirectionalLi
 		shadow.inv_resolution = 1.0f / p_resolution;
 		shadow.normal_bias = storage->light_get_param(base, RSE::LIGHT_PARAM_SHADOW_NORMAL_BIAS);
 		shadow.blur_radius = storage->light_get_param(base, RSE::LIGHT_PARAM_SHADOW_BLUR);
-		shadow.opacity = storage->light_get_param(base, RSE::LIGHT_PARAM_SHADOW_OPACITY);
+		shadow.opacity = item.shadow_opacity;
 		shadow.blend_splits = storage->light_directional_get_blend_splits(base);
 		shadow.camera_near = p_data.scene_data->z_near;
 		for (int i = 0; i < count; i++) {
@@ -156,7 +156,7 @@ bool CSMShadowPass::render(const RenderDataRD &p_data, LocalVector<DirectionalLi
 				RD::Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 1, instance_buffer.get_buffer()),
 				RD::Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 2, material_buffer.get_buffer()));
 		ERR_FAIL_COND_V(set.is_null(), false);
-		resolve_draws(rd->framebuffer_get_format(framebuffers[0]));
+		resolve_draws(rd->framebuffer_get_format(framebuffers[0]), pipelines);
 	}
 
 	rd->draw_command_begin_label("Yutrel CSMShadowPass", Color(0.3, 0.4, 0.7));

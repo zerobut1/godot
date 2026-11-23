@@ -599,7 +599,11 @@ void RenderingDeviceGraph::_add_command_to_graph(ResourceTracker **p_resource_tr
 		if (!search_tracker->previous_frame_stages.is_empty()) {
 			// Add to the command the stages the tracker was used on in the previous frame.
 			r_command->previous_stages = r_command->previous_stages | search_tracker->previous_frame_stages;
-			search_tracker->previous_frame_stages.clear();
+			// Disjoint slices share this tracker, but their transitions can be issued
+			// in separate barrier groups. Each still needs the parent's source stages.
+			if (!is_resource_a_slice) {
+				search_tracker->previous_frame_stages.clear();
+			}
 		}
 
 		if (different_usage) {

@@ -38,6 +38,7 @@
 #include "passes/ibl_pass.h"
 #include "passes/output_pass.h"
 #include "passes/path_tracer_pass.h"
+#include "passes/rt_shadow_pass.h"
 #include "passes/rtao_pass.h"
 #include "passes/shadow_mask_pass.h"
 #include "passes/skybox_pass.h"
@@ -90,6 +91,7 @@ class RenderYutrel : public RendererSceneRenderRD {
 	PathTracerPass path_tracer_pass;
 	DDGIPass ddgi_pass;
 	RTAOPass rtao_pass;
+	RTShadowPass rt_shadow_pass;
 	bool runtime_path_tracing = false;
 #ifdef TOOLS_ENABLED
 	EditorGizmoPass editor_gizmos;

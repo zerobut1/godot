@@ -46,6 +46,9 @@ static_assert(int(YutrelEnvironment::TONE_MAPPING_NONE) == int(ToneMappingMode::
 static_assert(int(YutrelEnvironment::SKY_MODE_CONSTANT_COLOR) == int(RendererSceneRenderImplementation::SkyMode::CONSTANT_COLOR));
 static_assert(int(YutrelEnvironment::SKY_MODE_HDRI) == int(RendererSceneRenderImplementation::SkyMode::HDRI));
 
+static_assert(int(YutrelEnvironment::SHADOW_MODE_CSM) == int(RendererSceneRenderImplementation::ShadowMode::CSM));
+static_assert(int(YutrelEnvironment::SHADOW_MODE_RAY_TRACED) == int(RendererSceneRenderImplementation::ShadowMode::RAY_TRACED));
+
 void YutrelEnvironment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_sky_mode", "sky_mode"), &YutrelEnvironment::set_sky_mode);
 	ClassDB::bind_method(D_METHOD("get_sky_mode"), &YutrelEnvironment::get_sky_mode);
@@ -62,6 +65,8 @@ void YutrelEnvironment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_exposure", "exposure"), &YutrelEnvironment::set_exposure);
 	ClassDB::bind_method(D_METHOD("get_exposure"), &YutrelEnvironment::get_exposure);
 
+	BIND_ENUM_CONSTANT(SHADOW_MODE_CSM);
+	BIND_ENUM_CONSTANT(SHADOW_MODE_RAY_TRACED);
 	BIND_ENUM_CONSTANT(TONE_MAPPING_AGX);
 	BIND_ENUM_CONSTANT(TONE_MAPPING_AGX_PUNCHY);
 	BIND_ENUM_CONSTANT(TONE_MAPPING_ACES);
@@ -69,6 +74,12 @@ void YutrelEnvironment::_bind_methods() {
 	BIND_ENUM_CONSTANT(SKY_MODE_CONSTANT_COLOR);
 	BIND_ENUM_CONSTANT(SKY_MODE_HDRI);
 
+	ClassDB::bind_method(D_METHOD("set_shadow_mode", "mode"), &YutrelEnvironment::set_shadow_mode);
+	ClassDB::bind_method(D_METHOD("get_shadow_mode"), &YutrelEnvironment::get_shadow_mode);
+	ClassDB::bind_method(D_METHOD("set_shadow_rt_half_resolution", "enabled"), &YutrelEnvironment::set_shadow_rt_half_resolution);
+	ClassDB::bind_method(D_METHOD("get_shadow_rt_half_resolution"), &YutrelEnvironment::get_shadow_rt_half_resolution);
+	ClassDB::bind_method(D_METHOD("set_shadow_rt_samples", "samples"), &YutrelEnvironment::set_shadow_rt_samples);
+	ClassDB::bind_method(D_METHOD("get_shadow_rt_samples"), &YutrelEnvironment::get_shadow_rt_samples);
 	ClassDB::bind_method(D_METHOD("set_shadow_resolution", "resolution"), &YutrelEnvironment::set_shadow_resolution);
 	ClassDB::bind_method(D_METHOD("get_shadow_resolution"), &YutrelEnvironment::get_shadow_resolution);
 	ClassDB::bind_method(D_METHOD("set_rtao_enabled", "enabled"), &YutrelEnvironment::set_rtao_enabled);
@@ -83,7 +94,10 @@ void YutrelEnvironment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_rtao_samples"), &YutrelEnvironment::get_rtao_samples);
 
 	ADD_GROUP("Shadow", "shadow_");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "shadow_mode", PROPERTY_HINT_ENUM, "CSM,Ray Traced"), "set_shadow_mode", "get_shadow_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "shadow_resolution", PROPERTY_HINT_ENUM, "1024:1024,2048:2048,4096:4096"), "set_shadow_resolution", "get_shadow_resolution");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shadow_rt_half_resolution"), "set_shadow_rt_half_resolution", "get_shadow_rt_half_resolution");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "shadow_rt_samples", PROPERTY_HINT_RANGE, "1,8,1"), "set_shadow_rt_samples", "get_shadow_rt_samples");
 
 	ADD_GROUP("Sky", "sky_");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "sky_mode", PROPERTY_HINT_ENUM, "Constant Color,HDRI Texture"), "set_sky_mode", "get_sky_mode");
@@ -134,6 +148,22 @@ void YutrelEnvironment::_notification(int p_what) {
 			world.unref();
 		} break;
 	}
+}
+
+void YutrelEnvironment::set_shadow_mode(ShadowMode p_mode) {
+	ERR_FAIL_COND(p_mode != SHADOW_MODE_CSM && p_mode != SHADOW_MODE_RAY_TRACED);
+	shadow_mode = p_mode;
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_shadow_rt_half_resolution(bool p_enabled) {
+	shadow_rt_half_resolution = p_enabled;
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_shadow_rt_samples(int p_samples) {
+	shadow_rt_samples = CLAMP(p_samples, 1, 8);
+	_publish_settings();
 }
 
 void YutrelEnvironment::set_shadow_resolution(int p_resolution) {
@@ -220,7 +250,10 @@ void YutrelEnvironment::_publish_settings() {
 			sky_texture.is_valid() ? sky_texture->get_rid() : RID(),
 			sky_intensity,
 			Math::deg_to_rad(sky_rotation),
+			RendererSceneRenderImplementation::ShadowMode(shadow_mode),
 			shadow_resolution,
+			shadow_rt_half_resolution,
+			shadow_rt_samples,
 			rtao_enabled,
 			rtao_half_resolution,
 			rtao_radius,

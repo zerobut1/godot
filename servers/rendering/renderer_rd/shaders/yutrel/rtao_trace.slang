@@ -16,32 +16,6 @@ struct TraceParams
 };
 [[vk::push_constant]] ConstantBuffer<TraceParams> params;
 
-// Choose a one-sided derivative along each axis, avoiding depth discontinuities.
-float3 position_delta(int2 pixel, int2 offset, int2 size, float3 world)
-{
-	int2 local = pixel + offset - int2(frame.viewport_origin);
-	if (any(local < 0) || any(local >= size))
-		return float3(1e15);
-	float depth = scene_depth.Load(int3(pixel + offset, 0));
-	return depth > 0 ? reconstruct_world_position(pixel + offset + 0.5, depth, frame) - world : float3(1e15);
-}
-
-float3 derivative(int2 pixel, int2 axis, int2 size, float3 world)
-{
-	float3 a = -position_delta(pixel, -axis, size, world);
-	float3 b = position_delta(pixel, axis, size, world);
-	return dot(a, a) < dot(b, b) ? a : b;
-}
-
-uint hash_pixel(uint v)
-{
-	v ^= v >> 16;
-	v *= 0x7feb352du;
-	v ^= v >> 15;
-	v *= 0x846ca68bu;
-	return v ^ (v >> 16);
-}
-
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void compute_main(uint3 tid : SV_DispatchThreadID)
@@ -60,18 +34,7 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 	}
 	float3 world = reconstruct_world_position(pixel + 0.5, depth, frame);
 	float3 N = normalize_or(gbuffer_b.Load(int3(pixel, 0)).rgb * 2 - 1, float3(0, 0, 1));
-	float3 dx = derivative(pixel, int2(1, 0), params.full_size, world);
-	float3 dy = derivative(pixel, int2(0, 1), params.full_size, world);
-	float3 footprint = reconstruct_world_position(pixel + 1.5, depth, frame) - world;
-	float limit_sq = max(0.0004, 256 * dot(footprint, footprint));
-	float3 Ng = N;
-	if (max(dot(dx, dx), dot(dy, dy)) < limit_sq)
-	{
-		// Normalize derivatives separately so sub-millimeter pixel footprints remain well conditioned.
-		Ng = normalize_or(cross(normalize_or(dx, 0), normalize_or(dy, 0)), N);
-		if (dot(Ng, N) < 0)
-			Ng = -Ng;
-	}
+	float3 Ng = geometric_normal(scene_depth, frame, pixel, params.full_size, depth, world, N);
 	float3 origin = offset_ray_origin(world, Ng);
 	float t_min = min(0.099 * params.radius, max(0.002, length(frame.camera_position.xyz - world) * 0.0005));
 	float3 tangent = normalize(cross(abs(N.z) < 0.99 ? float3(0, 0, 1) : float3(0, 1, 0), N));

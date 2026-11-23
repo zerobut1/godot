@@ -65,7 +65,8 @@ protected:
 	};
 
 	YutrelShader shader;
-	PipelineCacheRD pipelines[YutrelMaterialBridge::BLEND_MODE_COUNT][2][2];
+	using PipelineTable = PipelineCacheRD[YutrelMaterialBridge::BLEND_MODE_COUNT][2][2];
+	PipelineTable pipelines;
 	YutrelStorageBuffer instance_buffer;
 	YutrelStorageBuffer material_buffer;
 	LocalVector<DrawItem> draws;
@@ -76,7 +77,8 @@ protected:
 
 	explicit YutrelGeometryBatch(Pass p_pass) : pass(p_pass) {}
 	bool upload_geometry();
-	void resolve_draws(RD::FramebufferFormatID p_format);
+	bool prepare_shader(YutrelShader &r_shader, PipelineTable &r_pipelines, const char *p_path);
+	void resolve_draws(RD::FramebufferFormatID p_format, PipelineTable &p_pipelines);
 	BatchMaterial resolve_material(RID p_material, YutrelMaterialBridge &p_bridge, YutrelGeometryBatch *p_transparent);
 	void add_geometry(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_bridge,
 			YutrelGeometryBatch *p_transparent = nullptr, const Vector3 &p_camera_position = {}, const Vector3 &p_camera_forward = {});

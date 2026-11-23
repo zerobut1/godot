@@ -39,7 +39,7 @@ class RenderDataRD;
 namespace RendererSceneRenderImplementation {
 
 struct DirectionalLightParams {
-	float direction[4] = {};
+	float direction[4] = {}; // xyz points toward the light, w is its angular radius in radians.
 	float radiance[3] = {};
 	uint32_t has_shadow = 0;
 };
@@ -49,6 +49,8 @@ struct DirectionalLightItem {
 	RID instance;
 	DirectionalLightParams params;
 	CSMShadowData shadow;
+	bool shadow_enabled = false;
+	float shadow_opacity = 1.0f;
 };
 
 struct YutrelPipelineTargets;

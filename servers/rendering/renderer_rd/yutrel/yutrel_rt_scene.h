@@ -93,6 +93,7 @@ class YutrelRayTracingScene {
 	uint64_t scene_hash = 0;
 	struct ShaderSet {
 		RID shader;
+		uint32_t set_index;
 		RID set;
 	};
 	LocalVector<ShaderSet> shader_sets;
@@ -111,9 +112,9 @@ public:
 	YutrelRayTracingScene &operator=(const YutrelRayTracingScene &) = delete;
 	~YutrelRayTracingScene();
 
-	// Collect static meshes from the supplied render view. Set 1 is owned by this scene.
+	// Compute passes bind the scene at set 1. Forward geometry uses set 2.
 	bool update(const RenderDataRD &p_data, YutrelMaterialBridge &p_bridge);
-	RID get_uniform_set(RID p_shader);
+	RID get_uniform_set(RID p_shader, uint32_t p_set_index = 1);
 	uint64_t get_scene_hash() const { return scene_hash; }
 	bool has_tlas() const { return has_instances; }
 };

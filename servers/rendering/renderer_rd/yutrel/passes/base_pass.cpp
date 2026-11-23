@@ -50,7 +50,7 @@ bool BasePass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer
 
 void BasePass::_record(const YutrelPipelineTargets &p_targets, RID p_uniform_set, const Color &p_clear_color, RenderingServerTypes::RenderInfo *p_render_info) {
 	RD *rd = RD::get_singleton();
-	resolve_draws(rd->framebuffer_get_format(p_targets.base_framebuffer));
+	resolve_draws(rd->framebuffer_get_format(p_targets.base_framebuffer), pipelines);
 	rd->draw_command_begin_label("Yutrel BasePass", Color(0.2, 0.7, 1.0));
 	const Color zero(0, 0, 0, 0);
 	const RD::DrawListID list = rd->draw_list_begin(p_targets.base_framebuffer, RD::DRAW_CLEAR_COLOR_ALL | RD::DRAW_CLEAR_DEPTH, Vector<Color>{ p_clear_color, zero, zero, zero }, 0.0f, 0, p_targets.region, RDD::BreadcrumbMarker::OPAQUE_PASS);

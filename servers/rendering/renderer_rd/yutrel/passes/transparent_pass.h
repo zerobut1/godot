@@ -37,6 +37,8 @@
 
 namespace RendererSceneRenderImplementation {
 
+class YutrelRayTracingScene;
+
 class TransparentPass : public YutrelGeometryBatch {
 	struct BackToFront {
 		bool operator()(const DrawItem &a, const DrawItem &b) const {
@@ -50,18 +52,24 @@ class TransparentPass : public YutrelGeometryBatch {
 		}
 	};
 
+	YutrelShader rt_shader;
+	PipelineTable rt_pipelines;
 	YutrelStorageBuffer light_buffer;
 	YutrelStorageBuffer shadow_buffer;
 	RID fallback_depth;
 	RID fallback_sh;
 
-	bool _upload_lights(const LocalVector<DirectionalLightItem> &p_lights);
+	bool _upload_lights(const LocalVector<DirectionalLightItem> &p_lights, const YutrelRayTracingScene *p_rt_scene);
+	RID _get_csm_set(RID p_shadow_array, RID p_comparison_sampler);
 
 public:
+	// Material maps, DFG, prefiltered sky and three DDGI probe textures.
+	static constexpr uint32_t RT_SAMPLED_IMAGES = YutrelMaterialBridge::TEXTURE_COUNT + 5;
+
 	TransparentPass() : YutrelGeometryBatch(TRANSPARENT) {}
 	~TransparentPass();
 	void render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const LocalVector<DirectionalLightItem> &p_lights,
-			RID p_shadow_array, RID p_comparison_sampler, RID p_dfg_lut, const IBLPass &p_ibl, bool p_has_ibl, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi,
+			YutrelRayTracingScene *p_rt_scene, RID p_shadow_array, RID p_comparison_sampler, RID p_dfg_lut, const IBLPass &p_ibl, bool p_has_ibl, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi,
 			RenderingServerTypes::RenderInfo *p_render_info = nullptr);
 };
 

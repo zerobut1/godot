@@ -26,15 +26,20 @@ struct RTMaterialTextures
 	uint2 padding;
 };
 
-[[vk::binding(0, 1)]] RaytracingAccelerationStructure rt_tlas;
-[[vk::binding(1, 1)]] StructuredBuffer<RTVertex> rt_vertices;
-[[vk::binding(2, 1)]] StructuredBuffer<uint> rt_indices;
-[[vk::binding(3, 1)]] StructuredBuffer<RTInstance> rt_instances;
-[[vk::binding(4, 1)]] StructuredBuffer<RTSurface> rt_surfaces;
-[[vk::binding(5, 1)]] StructuredBuffer<MaterialData> rt_materials;
-[[vk::binding(6, 1)]] StructuredBuffer<RTMaterialTextures> rt_material_textures;
-[[vk::binding(7, 1)]] SamplerState rt_sampler;
-[[vk::binding(8, 1)]] Texture2D<float4> rt_textures[512];
+// Compute passes use set 1. Forward geometry reserves that set for its material.
+#ifndef YUTREL_RT_SCENE_SET
+#define YUTREL_RT_SCENE_SET 1
+#endif
+
+[[vk::binding(0, YUTREL_RT_SCENE_SET)]] RaytracingAccelerationStructure rt_tlas;
+[[vk::binding(1, YUTREL_RT_SCENE_SET)]] StructuredBuffer<RTVertex> rt_vertices;
+[[vk::binding(2, YUTREL_RT_SCENE_SET)]] StructuredBuffer<uint> rt_indices;
+[[vk::binding(3, YUTREL_RT_SCENE_SET)]] StructuredBuffer<RTInstance> rt_instances;
+[[vk::binding(4, YUTREL_RT_SCENE_SET)]] StructuredBuffer<RTSurface> rt_surfaces;
+[[vk::binding(5, YUTREL_RT_SCENE_SET)]] StructuredBuffer<MaterialData> rt_materials;
+[[vk::binding(6, YUTREL_RT_SCENE_SET)]] StructuredBuffer<RTMaterialTextures> rt_material_textures;
+[[vk::binding(7, YUTREL_RT_SCENE_SET)]] SamplerState rt_sampler;
+[[vk::binding(8, YUTREL_RT_SCENE_SET)]] Texture2D<float4> rt_textures[512];
 
 public struct RTHit
 {
@@ -114,7 +119,7 @@ public bool trace_shadow_ray(float3 origin, float3 dir, float t_min, float t_max
 {
 	RayDesc ray = { origin, t_min, dir, t_max };
 	RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
-	q.TraceRayInline(rt_tlas, RAY_FLAG_NONE, 0xff, ray);
+	q.TraceRayInline(rt_tlas, RAY_FLAG_NONE, 0x01, ray);
 	for (uint i = 0; i < 64 && q.Proceed(); ++i)
 	{
 		if (accept_candidate(q.CandidateInstanceID(), q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics(), dir, true))
@@ -125,6 +130,28 @@ public bool trace_shadow_ray(float3 origin, float3 dir, float t_min, float t_max
 		}
 	}
 	return q.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
+}
+
+public bool trace_shadow_ray_distance(float3 origin, float3 dir, float t_min, float t_max, out float hit_t)
+{
+	RayDesc ray = { origin, t_min, dir, t_max };
+	RayQuery<RAY_FLAG_NONE> q;
+	q.TraceRayInline(rt_tlas, RAY_FLAG_NONE, 0x01, ray);
+	for (uint i = 0; i < 64 && q.Proceed(); ++i)
+	{
+		if (accept_candidate(q.CandidateInstanceID(), q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics(), dir, true))
+			q.CommitNonOpaqueTriangleHit();
+	}
+	bool blocked = q.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
+	hit_t = blocked ? q.CommittedRayT() : 0;
+	return blocked;
+}
+
+public float3 sample_sun_disk(float3 light_dir, float tan_angular_radius, float2 u)
+{
+	float3 tangent = normalize(cross(abs(light_dir.z) < 0.99 ? float3(0, 0, 1) : float3(0, 1, 0), light_dir));
+	float angle = 6.283185307 * u.y;
+	return normalize(light_dir + tan_angular_radius * sqrt(u.x) * (cos(angle) * tangent + sin(angle) * cross(light_dir, tangent)));
 }
 
 public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, out RTHit hit, bool include_backfaces = false, bool distance_only = false)

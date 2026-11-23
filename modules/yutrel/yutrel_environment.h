@@ -39,6 +39,11 @@ class YutrelEnvironment : public Node {
 	GDCLASS(YutrelEnvironment, Node);
 
 public:
+	enum ShadowMode {
+		SHADOW_MODE_CSM,
+		SHADOW_MODE_RAY_TRACED,
+	};
+
 	enum SkyMode {
 		SKY_MODE_CONSTANT_COLOR,
 		SKY_MODE_HDRI,
@@ -50,6 +55,15 @@ public:
 		TONE_MAPPING_ACES,
 		TONE_MAPPING_NONE,
 	};
+
+	void set_shadow_mode(ShadowMode p_mode);
+	ShadowMode get_shadow_mode() const { return shadow_mode; }
+
+	void set_shadow_rt_half_resolution(bool p_enabled);
+	bool get_shadow_rt_half_resolution() const { return shadow_rt_half_resolution; }
+
+	void set_shadow_rt_samples(int p_samples);
+	int get_shadow_rt_samples() const { return shadow_rt_samples; }
 
 	void set_shadow_resolution(int p_resolution);
 	int get_shadow_resolution() const { return shadow_resolution; }
@@ -97,7 +111,10 @@ protected:
 	void _notification(int p_what);
 
 private:
+	ShadowMode shadow_mode = SHADOW_MODE_CSM;
 	int shadow_resolution = 2048;
+	bool shadow_rt_half_resolution = true;
+	int shadow_rt_samples = 1;
 	SkyMode sky_mode = SKY_MODE_CONSTANT_COLOR;
 	Color sky_color = Color(0.22f, 0.25f, 0.30f);
 	Ref<Texture2D> sky_texture;
@@ -118,5 +135,6 @@ private:
 	void _world_changed();
 };
 
+VARIANT_ENUM_CAST(YutrelEnvironment::ShadowMode);
 VARIANT_ENUM_CAST(YutrelEnvironment::ToneMapping);
 VARIANT_ENUM_CAST(YutrelEnvironment::SkyMode);

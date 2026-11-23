@@ -78,9 +78,18 @@ float3 integrate(float3 origin, float3 dir, inout uint rng)
 		{
 			float3 l = lights[i].direction.xyz;
 			float nl = dot(n, l);
-			if (nl <= 0 || dot(hit.geometric_normal, l) <= 0)
+			if (nl <= 0)
 				continue;
-			if (!trace_shadow_ray(origin, l, 0, 1e20))
+			float3 shadow_dir = l;
+			if (lights[i].direction.w > 0)
+			{
+				float u = random(rng);
+				float v_disk = random(rng);
+				shadow_dir = sample_sun_disk(l, tan(lights[i].direction.w), float2(u, v_disk));
+			}
+			if (dot(hit.geometric_normal, shadow_dir) <= 0)
+				continue;
+			if (!trace_shadow_ray(origin, shadow_dir, 0, 1e20))
 			{
 				float3 h = normalize(v + l);
 				float3 brdf = evaluate_brdf(diffuse, f0, alpha, nv, nl, saturate(dot(n, h)), saturate(dot(l, h)), 1);

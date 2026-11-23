@@ -1,0 +1,49 @@
+[gd_scene format=3]
+
+[sub_resource type="StandardMaterial3D" id="White"]
+metallic_specular = 0.0
+
+[sub_resource type="StandardMaterial3D" id="Glass"]
+transparency = 1
+albedo_color = Color(1, 1, 1, 0.7)
+metallic_specular = 0.0
+
+[sub_resource type="QuadMesh" id="GlassPanel"]
+material = SubResource("Glass")
+size = Vector2(1.2, 0.6)
+
+[sub_resource type="QuadMesh" id="Receiver"]
+material = SubResource("White")
+size = Vector2(10, 8)
+
+[sub_resource type="BoxMesh" id="Pillar"]
+material = SubResource("White")
+size = Vector3(0.32, 0.86, 4)
+
+[node name="Shadows" type="Node3D"]
+
+[node name="Environment" type="YutrelEnvironment" parent="."]
+shadow_mode = 1
+shadow_resolution = 1024
+sky_intensity = 0.0
+tone_mapping = 3
+rtao_enabled = false
+
+[node name="Rig" type="Node3D" parent="."]
+
+[node name="Receiver" type="MeshInstance3D" parent="Rig"]
+mesh = SubResource("Receiver")
+
+[node name="Glass" type="MeshInstance3D" parent="Rig"]
+position = Vector3(0, 0, 0.1)
+mesh = SubResource("GlassPanel")
+
+[node name="Pillar" type="MeshInstance3D" parent="Rig"]
+position = Vector3(-2.2, 0, 2)
+mesh = SubResource("Pillar")
+
+[node name="Sun" type="DirectionalLight3D" parent="Rig"]
+rotation = Vector3(0, -0.7853981634, 0)
+shadow_enabled = true
+light_angular_distance = 2.0
+directional_shadow_max_distance = 30.0

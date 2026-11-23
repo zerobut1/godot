@@ -57,6 +57,7 @@ public:
 	RID path_tracer_accum;
 	DDGIPass::History ddgi_history;
 	RTAOPass::History rtao_history;
+	RTShadowPass::History rt_shadow_history;
 	uint64_t pt_state_hash = 0;
 	uint32_t pt_sample_count = 0;
 
@@ -67,7 +68,7 @@ public:
 		constexpr uint32_t usage = RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT;
 		gbuffer_a = p_buffers->create_texture(SNAME("Yutrel"), SNAME("GBuffer_A"), RD::DATA_FORMAT_R8G8B8A8_SRGB, usage);
 		gbuffer_b = p_buffers->create_texture(SNAME("Yutrel"), SNAME("GBuffer_B"), RD::DATA_FORMAT_R16G16B16A16_UNORM, usage);
-		shadow_mask = p_buffers->create_texture(SNAME("Yutrel"), SNAME("ShadowMask"), RD::DATA_FORMAT_R8_UNORM, usage);
+		shadow_mask = p_buffers->create_texture(SNAME("Yutrel"), SNAME("ShadowMask"), RD::DATA_FORMAT_R16_SFLOAT, usage | RD::TEXTURE_USAGE_STORAGE_BIT);
 		gbuffer_c = p_buffers->create_texture(SNAME("Yutrel"), SNAME("GBuffer_C"), RD::DATA_FORMAT_R8G8B8A8_UNORM, usage);
 	}
 
@@ -82,6 +83,7 @@ public:
 		pt_state_hash = 0;
 		ddgi_history.clear();
 		rtao_history.clear();
+		rt_shadow_history.clear();
 	}
 };
 
@@ -193,7 +195,6 @@ bool RenderYutrel::_get_native_targets(const RenderDataRD &p_data, YutrelPipelin
 
 bool RenderYutrel::_prepare_passes() {
 	// Poll every shader even when another pass is unavailable.
-	const bool caster_ready = csm_shadow_pass.prepare();
 	const bool mask_ready = shadow_mask_pass.prepare();
 	const bool base_ready = base_pass.prepare();
 	const bool lighting_ready = directional_light_pass.prepare();
@@ -203,7 +204,7 @@ bool RenderYutrel::_prepare_passes() {
 	const bool output_ready = output_pass.prepare();
 	const bool debug_ready = debug_view_pass.prepare();
 	const bool dfg_ready = directional_light_pass.prepare_dfg_lut();
-	return caster_ready && mask_ready && base_ready && lighting_ready && transparent_ready && output_ready && debug_ready && dfg_ready;
+	return mask_ready && base_ready && lighting_ready && transparent_ready && output_ready && debug_ready && dfg_ready;
 }
 
 void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_default_color) {
@@ -235,11 +236,15 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 
 	const YutrelEnvironmentSettings environment = YutrelEnvironmentSettings::get(p_render_data->environment);
 	const Ref<YutrelRenderBufferData> custom = p_render_data->render_buffers->get_custom_data(SNAME("Yutrel"));
+	if (environment.shadow_mode != ShadowMode::RAY_TRACED && custom->rt_shadow_history.raw_shadow.is_valid()) {
+		custom->rt_shadow_history.clear();
+	}
 	if (!environment.rtao_enabled && custom->rtao_history.ao_texture.is_valid()) {
 		custom->rtao_history.clear();
 	}
 	LocalVector<DirectionalLightItem> lights = DirectionalLightPass::collect(*p_render_data);
 	if (settings.debug_view == DebugViewMode::PATH_TRACER) {
+		custom->rt_shadow_history.invalidate();
 		custom->rtao_history.has_history = false;
 		ERR_FAIL_COND(!output_pass.prepare() || !ibl_pass.prepare_environment(environment));
 #ifdef TOOLS_ENABLED
@@ -275,19 +280,32 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	}
 	RENDER_TIMESTAMP("Yutrel Collect Geometry");
 	_collect_geometry(*p_render_data);
-	RENDER_TIMESTAMP("Yutrel CSM Shadows");
-	ERR_FAIL_COND(!csm_shadow_pass.render(*p_render_data, lights, environment.shadow_resolution, material_bridge));
-	RENDER_TIMESTAMP("Yutrel BasePass");
-	if (!base_pass.render(targets, frame_buffer, p_default_color.srgb_to_linear(), p_render_data->render_info)) {
-		return;
-	}
-
 	const bool probes = settings.debug_view == DebugViewMode::DDGI_PROBES;
 	const bool indirect_only = settings.debug_view == DebugViewMode::DDGI_INDIRECT;
 	const bool final = settings.debug_view == DebugViewMode::FINAL || probes;
 	const bool lighting_only = settings.debug_view == DebugViewMode::LIGHTING;
 	const bool draw_lighting = (final || lighting_only) && base_pass.has_draws();
 	const bool draw_transparent = (final || lighting_only) && transparent_pass.has_draws();
+	const bool debug_mask = settings.debug_view == DebugViewMode::SHADOW_MASK;
+	const bool debug_cascades = settings.debug_view == DebugViewMode::CSM_CASCADES;
+	const bool want_rt_shadow = environment.shadow_mode == ShadowMode::RAY_TRACED && !debug_cascades &&
+			YutrelRayTracingScene::is_supported(draw_transparent ? TransparentPass::RT_SAMPLED_IMAGES : 2);
+	bool has_shadow_light = false;
+	for (const DirectionalLightItem &light : lights) {
+		if (light.shadow_enabled) {
+			has_shadow_light = true;
+			break;
+		}
+	}
+	if (!want_rt_shadow) {
+		RENDER_TIMESTAMP("Yutrel CSM Shadows");
+		ERR_FAIL_COND(!csm_shadow_pass.prepare() || !csm_shadow_pass.render(*p_render_data, lights, environment.shadow_resolution, material_bridge));
+	}
+	RENDER_TIMESTAMP("Yutrel BasePass");
+	if (!base_pass.render(targets, frame_buffer, p_default_color.srgb_to_linear(), p_render_data->render_info)) {
+		return;
+	}
+
 	const bool draw_sky = final && !p_render_data->transparent_bg;
 	const YutrelSkyParams sky_params = {
 		environment.sky_intensity,
@@ -303,7 +321,8 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 			base_pass.has_draws() && YutrelRayTracingScene::is_supported(2);
 	const bool ibl_ready = (needs_ddgi || draw_lighting || draw_sky || draw_transparent) && ibl_pass.prepare_environment(environment);
 	bool rt_ready = false;
-	if (needs_ddgi || needs_rtao) {
+	const bool needs_rt_shadow = want_rt_shadow && has_shadow_light && (draw_lighting || draw_transparent || debug_mask);
+	if (needs_ddgi || needs_rtao || needs_rt_shadow) {
 		RENDER_TIMESTAMP("Yutrel RT Scene Update");
 		rt_ready = rt_scene.update(*p_render_data, material_bridge);
 	}
@@ -332,29 +351,44 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	} else if (draw_lighting || draw_transparent) {
 		bindings = ibl_pass.get_inactive_ddgi();
 	}
-	const bool debug_mask = settings.debug_view == DebugViewMode::SHADOW_MASK;
-	const bool debug_cascades = settings.debug_view == DebugViewMode::CSM_CASCADES;
 	bool primary_shadow = false;
+	bool ran_rt_shadow = false;
 	if (indirect_only || (lighting_only && (!draw_lighting || lights.is_empty()))) {
 		rd->draw_list_begin(targets.lighting_framebuffer, RD::DRAW_CLEAR_COLOR_0, { Color(0, 0, 0, indirect_only ? 1 : 0) }, 0.0f, 0, targets.region);
 		rd->draw_list_end();
 	}
 	if (draw_lighting || debug_mask || debug_cascades) {
-		RENDER_TIMESTAMP("Yutrel Direct Lighting");
 		for (uint32_t i = 0; i < lights.size(); i++) {
-			const DirectionalLightItem &light = lights[i];
+			DirectionalLightItem &light = lights[i];
+			bool rt_mask = false;
+			if (needs_rt_shadow && rt_ready && light.shadow_enabled) {
+				RENDER_TIMESTAMP("> Yutrel RT Shadow");
+				rt_mask = rt_shadow_pass.render(custom->rt_shadow_history, light, targets, frame_buffer, frame, environment, rt_scene, p_render_data->scene_data->time_step);
+				RENDER_TIMESTAMP("< Yutrel RT Shadow");
+				ran_rt_shadow |= rt_mask;
+			}
+			light.params.has_shadow = rt_mask || light.shadow.cascade_count > 0;
 			if (light.params.has_shadow) {
-				shadow_mask_pass.render(targets, frame_buffer, csm_shadow_pass.get_depth_array(), light.shadow, debug_cascades);
+				if (!rt_mask) {
+					RENDER_TIMESTAMP("Yutrel Shadow Mask");
+					shadow_mask_pass.render(targets, frame_buffer, csm_shadow_pass.get_depth_array(), light.shadow, debug_cascades);
+				}
 				primary_shadow = true;
 				if (debug_mask || debug_cascades) {
 					break;
 				}
 			}
 			if (draw_lighting) {
+				RENDER_TIMESTAMP("Yutrel Direct Lighting");
 				const RID mask = light.params.has_shadow ? targets.shadow_mask : material_bridge.get_white_texture();
 				directional_light_pass.render(targets, frame_buffer, light.params, mask, lighting_only && i == 0);
 			}
 		}
+	}
+	if (ran_rt_shadow) {
+		custom->rt_shadow_history.finish_frame(frame);
+	} else {
+		custom->rt_shadow_history.invalidate();
 	}
 	if ((draw_lighting || (indirect_only && ddgi_ready && base_pass.has_draws())) && ibl_ready) {
 		RENDER_TIMESTAMP("Yutrel IBL / Indirect");
@@ -367,7 +401,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 
 	if (draw_transparent) {
 		RENDER_TIMESTAMP("Yutrel Transparent");
-		transparent_pass.render(targets, frame_buffer, lights, csm_shadow_pass.get_depth_array(), shadow_mask_pass.get_comparison_sampler(),
+		transparent_pass.render(targets, frame_buffer, lights, needs_rt_shadow && rt_ready ? &rt_scene : nullptr, csm_shadow_pass.get_depth_array(), shadow_mask_pass.get_comparison_sampler(),
 				directional_light_pass.get_dfg_lut(), ibl_pass, ibl_ready, sky_params, bindings, p_render_data->render_info);
 	}
 

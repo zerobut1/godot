@@ -45,6 +45,11 @@ enum class ToneMappingMode : uint32_t {
 	NONE,
 };
 
+enum class ShadowMode : uint32_t {
+	CSM,
+	RAY_TRACED,
+};
+
 enum class SkyMode : uint32_t {
 	CONSTANT_COLOR,
 	HDRI,
@@ -67,7 +72,10 @@ struct YutrelEnvironmentSettings {
 	RID sky_texture_rid;
 	float sky_intensity = 1.0f;
 	float sky_rotation_radians = 0.0f;
+	ShadowMode shadow_mode = ShadowMode::CSM;
 	int shadow_resolution = 2048;
+	bool shadow_rt_half_resolution = true;
+	int shadow_rt_samples = 1;
 	bool rtao_enabled = true;
 	bool rtao_half_resolution = true;
 	float rtao_radius = 1.0f;

@@ -61,6 +61,7 @@ namespace {
 struct SceneInstance {
 	const RenderGeometryInstanceBase *geometry;
 	bool shadows_only;
+	bool casts_shadow = true;
 
 	bool operator<(const SceneInstance &p_other) const { return geometry < p_other.geometry; }
 };
@@ -77,7 +78,7 @@ LocalVector<SceneInstance> collect_instances(const RenderDataRD &p_data) {
 			if ((data.flags & InstanceData::FLAG_BASE_TYPE_MASK) != RSE::INSTANCE_MESH || !(data.layer_mask & layers)) {
 				continue;
 			}
-			result.push_back({ static_cast<const RenderGeometryInstanceBase *>(data.instance_geometry), bool(data.flags & InstanceData::FLAG_CAST_SHADOWS_ONLY) });
+			result.push_back({ static_cast<const RenderGeometryInstanceBase *>(data.instance_geometry), bool(data.flags & InstanceData::FLAG_CAST_SHADOWS_ONLY), bool(data.flags & InstanceData::FLAG_CAST_SHADOWS) });
 		}
 		return result;
 	}
@@ -357,7 +358,7 @@ bool YutrelRayTracingScene::update(const RenderDataRD &p_data, YutrelMaterialBri
 		build.transform = instance.transform;
 		build.blas = mesh.blas;
 		build.id = records.size();
-		build.mask = 0xff;
+		build.mask = candidate.casts_shadow ? 0xff : 0xfe; // Shadow rays test bit 0. Surface rays see every mesh.
 		build.hit_sbt_range = int64_t(1) << 32; // RD requires a nonempty range even for inline queries.
 		build.flags = RD::ACCELERATION_STRUCTURE_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT |
 				(any_hit ? RD::ACCELERATION_STRUCTURE_INSTANCE_FORCE_NO_OPAQUE_BIT : RD::ACCELERATION_STRUCTURE_INSTANCE_FORCE_OPAQUE_BIT);
@@ -367,6 +368,7 @@ bool YutrelRayTracingScene::update(const RenderDataRD &p_data, YutrelMaterialBri
 		instance_meshes.push_back(rid);
 		hash = hash_djb2_one_64(rid.get_id(), hash);
 		hash = hash_djb2_one_64(mesh.blas.get_id(), hash);
+		hash = hash_djb2_one_64(build.mask, hash);
 	}
 
 	Vector<RID> active;
@@ -443,15 +445,15 @@ void YutrelRayTracingScene::_free_sets() {
 	shader_sets.clear();
 }
 
-RID YutrelRayTracingScene::get_uniform_set(RID p_shader) {
+RID YutrelRayTracingScene::get_uniform_set(RID p_shader, uint32_t p_set_index) {
 	RD *rd = RD::get_singleton();
-	// DDGI and RTAO share the TLAS in the same frame. Keep both descriptor sets
+	// Ray-traced passes share the TLAS in the same frame. Keep their descriptor sets
 	// alive, pruning dependencies invalidated by shader reloads or buffer growth.
 	for (uint32_t i = shader_sets.size(); i > 0; --i) {
 		const ShaderSet &entry = shader_sets[i - 1];
 		if (!rd->uniform_set_is_valid(entry.set)) {
 			shader_sets.remove_at_unordered(i - 1);
-		} else if (entry.shader == p_shader) {
+		} else if (entry.shader == p_shader && entry.set_index == p_set_index) {
 			return entry.set;
 		}
 	}
@@ -468,9 +470,9 @@ RID YutrelRayTracingScene::get_uniform_set(RID p_shader) {
 		images.append_id(i < textures.size() ? textures[i] : textures[0]);
 	}
 	bindings.push_back(images);
-	const RID set = rd->uniform_set_create(bindings, p_shader, 1);
+	const RID set = rd->uniform_set_create(bindings, p_shader, p_set_index);
 	if (set.is_valid()) {
-		shader_sets.push_back({ p_shader, set });
+		shader_sets.push_back({ p_shader, p_set_index, set });
 	}
 	return set;
 }

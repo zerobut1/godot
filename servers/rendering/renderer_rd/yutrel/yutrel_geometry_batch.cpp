@@ -38,10 +38,14 @@ namespace RendererSceneRenderImplementation {
 
 bool YutrelGeometryBatch::prepare() {
 	static constexpr const char *shaders[] = { "base_pass.slang", "shadow_caster.slang", "transparent.slang" };
-	static constexpr int attachment_count[] = { 4, 0, 1 };
-	if (!refresh_shader(shader, shaders[pass])) {
-		return shader.get_shader().is_valid();
+	return prepare_shader(shader, pipelines, shaders[pass]);
+}
+
+bool YutrelGeometryBatch::prepare_shader(YutrelShader &r_shader, PipelineTable &r_pipelines, const char *p_path) {
+	if (!refresh_shader(r_shader, p_path)) {
+		return r_shader.get_shader().is_valid();
 	}
+	static constexpr int attachment_count[] = { 4, 0, 1 };
 	RD::PipelineColorBlendState blend = RD::PipelineColorBlendState::create_disabled(attachment_count[pass]);
 	RD::PipelineDepthStencilState depth;
 	depth.enable_depth_test = true;
@@ -64,11 +68,11 @@ bool YutrelGeometryBatch::prepare() {
 				// Godot's projection flips Y for Vulkan's positive-height viewport.
 				raster.front_face = mirrored ? RD::POLYGON_FRONT_FACE_COUNTER_CLOCKWISE : RD::POLYGON_FRONT_FACE_CLOCKWISE;
 				raster.cull_mode = double_sided ? RD::POLYGON_CULL_DISABLED : RD::POLYGON_CULL_BACK;
-				pipelines[mode][mirrored][double_sided].setup(shader.get_shader(), RD::RENDER_PRIMITIVE_TRIANGLES, raster, {}, depth, blend);
+				r_pipelines[mode][mirrored][double_sided].setup(r_shader.get_shader(), RD::RENDER_PRIMITIVE_TRIANGLES, raster, {}, depth, blend);
 			}
 		}
 	}
-	return shader.get_shader().is_valid();
+	return r_shader.get_shader().is_valid();
 }
 
 void YutrelGeometryBatch::clear() {
@@ -177,11 +181,11 @@ bool YutrelGeometryBatch::upload_geometry() {
 	return instance_buffer.upload(instances, "Yutrel Instance SSBO") && material_buffer.upload(materials, "Yutrel Material SSBO");
 }
 
-void YutrelGeometryBatch::resolve_draws(RD::FramebufferFormatID p_format) {
+void YutrelGeometryBatch::resolve_draws(RD::FramebufferFormatID p_format, PipelineTable &p_pipelines) {
 	auto *meshes = RendererRD::MeshStorage::get_singleton();
 	for (uint32_t i = 0; i < draws.size(); i++) {
 		DrawItem &item = draws[i];
-		auto &pipeline = pipelines[item.material.blend][item.mirrored][item.double_sided];
+		auto &pipeline = p_pipelines[item.material.blend][item.mirrored][item.double_sided];
 		RD::VertexFormatID vertex_format;
 		meshes->mesh_surface_get_vertex_arrays_and_format(item.surface, pipeline.get_vertex_input_mask(), false, false, item.vertex_array, vertex_format);
 		item.index_array = meshes->mesh_surface_get_index_array(item.surface, 0);

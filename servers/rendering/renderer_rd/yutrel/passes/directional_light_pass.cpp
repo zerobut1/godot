@@ -123,6 +123,10 @@ LocalVector<DirectionalLightItem> DirectionalLightPass::collect(const RenderData
 			const Color radiance = lights->light_get_color(light).srgb_to_linear() * energy;
 			DirectionalLightItem item;
 			item.instance = instance;
+			item.shadow_enabled = lights->light_has_shadow(light);
+			item.shadow_opacity = lights->light_get_param(light, RSE::LIGHT_PARAM_SHADOW_OPACITY);
+			const float angular_diameter = lights->light_get_param(light, RSE::LIGHT_PARAM_SIZE);
+			item.params.direction[3] = Math::deg_to_rad(CLAMP(angular_diameter, 0.0f, 90.0f) * 0.5f);
 			for (int axis = 0; axis < 3; axis++) {
 				item.params.direction[axis] = direction[axis];
 				item.params.radiance[axis] = radiance[axis];
