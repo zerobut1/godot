@@ -1,4 +1,5 @@
 import common;
+import temporal_reprojection;
 import rt_reflection_common;
 
 [[vk::binding(0)]] ConstantBuffer<FrameData> frame;
@@ -14,6 +15,8 @@ import rt_reflection_common;
 [[vk::binding(10)]] Texture2D<float4> prev_reflection;
 [[vk::binding(11)]] Texture2D<float4> prev_mirror_guide;
 [[vk::binding(12)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> mirror_guide;
+
+[[vk::binding(13)]] Texture2D<float2> velocity;
 
 struct UpsampleParams
 {
@@ -75,8 +78,11 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 			mirror_guide[local] = g;
 			return;
 		}
-		bool reuse = params.has_history != 0;
-		if (reuse && params.scene_changed != 0 && params.stationary != 0 && traced.a >= 0)
+		float2 vel = velocity.Load(coord);
+		bool stationary = params.stationary != 0 && all(abs(vel) < 1e-5);
+		SurfaceReprojection reproj = reproject_surface(pixel, vel, world, frame, prev_frame);
+		bool reuse = params.has_history != 0 && (stationary || reproj.visible);
+		if (reuse && params.scene_changed != 0 && stationary && traced.a >= 0)
 		{
 			// An off-screen mover can change a stationary mirror. Invalidate the
 			// affected quad, preserving unrelated mirrors in an animated scene.
@@ -88,13 +94,13 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 		{
 			int2 previous = local;
 			float4 prior;
-			if (params.stationary != 0)
+			if (stationary)
 				prior = prev_mirror_guide.Load(int3(local, 0));
 			else
 			{
-				previous = int2(floor(previous_pixel(world, prev_frame) + 0.5));
+				previous = int2(floor(reproj.prev_uv / prev_frame.inv_viewport_size));
 				prior = load_mirror_guide(previous, size);
-				if (traced.a > 0 && work_guide.Load(int3(quad, 0)).w < MIRROR_ROUGHNESS)
+				if (!reproj.moving && params.stationary == 0 && traced.a > 0 && work_guide.Load(int3(quad, 0)).w < MIRROR_ROUGHNESS)
 				{
 					int2 hit = int2(floor(previous_pixel(world - reflection_view(world, frame) * traced.a, prev_frame) + 0.5));
 					float4 hg = load_mirror_guide(hit, size);
@@ -105,7 +111,9 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 					}
 				}
 			}
-			if (prior.z > 0 && disocclusion(N, linear_view_depth(world, prev_frame), prior) >= 0.9)
+			bool compatible = reproj.moving ? moving_surface_compatible(N, z, unpack_octahedral_normal(prior.xy), prior.z)
+					: prior.z > 0 && disocclusion(N, linear_view_depth(world, prev_frame), prior) >= 0.9;
+			if (compatible)
 			{
 				reflection[local] = prev_reflection.Load(int3(previous, 0));
 				mirror_guide[local] = g;

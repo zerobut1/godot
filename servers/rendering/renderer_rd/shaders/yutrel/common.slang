@@ -7,6 +7,10 @@ public struct FrameData
 	public float4 camera_forward;
 	public float2 viewport_origin;
 	public float2 inv_viewport_size;
+	public float4 unjittered_view_projection[4];
+	public float4 prev_unjittered_view_projection[4];
+	public float2 jitter_uv;
+	public float2 prev_jitter_uv;
 };
 
 public struct InstanceData
@@ -20,6 +24,7 @@ public struct InstanceData
 	public float2 uv_scale;
 	public uint material_id;
 	public uint padding1;
+	public float4 prev_model[3];
 };
 
 public struct MaterialData
@@ -86,6 +91,15 @@ public float3 mul_3x4(float4 rows[3], float4 v)
 public float4 mul_4x4(float4 rows[4], float4 v)
 {
 	return float4(dot(rows[0], v), dot(rows[1], v), dot(rows[2], v), dot(rows[3], v));
+}
+
+// Backwards, normalized UV displacement. Both clips exclude sample jitter.
+public float2 motion_vector(float4 curr, float4 prev)
+{
+	if (abs(curr.w) < 1e-6 || abs(prev.w) < 1e-6)
+		return float2(10.0);
+	float2 vel = (prev.xy / prev.w * 0.5 + 0.5) - (curr.xy / curr.w * 0.5 + 0.5);
+	return all(isfinite(vel)) ? clamp(vel, -65504.0, 65504.0) : float2(10.0);
 }
 
 public float3 mul_normal_3x3(float4 rows[3], float3 v)

@@ -1,4 +1,5 @@
 import common;
+import temporal_reprojection;
 import rt_reflection_common;
 
 [[vk::binding(0)]] ConstantBuffer<FrameData> frame;
@@ -15,6 +16,8 @@ import rt_reflection_common;
 [[vk::binding(11)]] [[vk::image_format("r16f")]] RWTexture2D<float> variance;
 [[vk::binding(12)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> average;
 [[vk::binding(13)]] [[vk::image_format("r8ui")]] Texture2D<uint> quad_offset;
+
+[[vk::binding(14)]] Texture2D<float2> velocity;
 
 struct ReprojectParams
 {
@@ -34,18 +37,23 @@ float4 nearest_guide(float2 p, int2 size)
 	return all(tap >= 0) && all(tap < size) ? prev_guide.Load(int3(tap, 0)) : float4(0);
 }
 
-void recover_history(int2 texel, int2 size, float3 world, float distance, float3 N, float r, float3 current,
+void recover_history(int2 texel, int2 pixel, int2 size, float3 world, float distance, float3 N, float r, float3 current,
 		out float4 history, out float var)
 {
 	history = float4(0, 0, 0, 1);
 	var = 1;
 	// Reuse the exact stationary sample to avoid diffusing a sharp lobe.
 	float2 p = float2(texel);
-	if (params.stationary == 0)
+	float2 vel = velocity.Load(int3(pixel, 0));
+	SurfaceReprojection reproj = reproject_surface(pixel, vel, world, frame, prev_frame);
+	if (params.stationary == 0 || any(abs(vel) >= 1e-5))
 	{
-		float2 surface = history_texel(world);
+		if (!reproj.visible)
+			return;
+		float2 prev_pixel = reproj.prev_uv / prev_frame.inv_viewport_size - 0.5;
+		float2 surface = reflection_texel(prev_pixel, params.scale, float2(0), params.full_size);
 		float2 hit = history_texel(world - reflection_view(world, frame) * distance);
-		p = use_virtual_hit(N, r, nearest_guide(hit, size), nearest_guide(surface, size)) ? hit : surface;
+		p = !reproj.moving && params.stationary == 0 && use_virtual_hit(N, r, nearest_guide(hit, size), nearest_guide(surface, size)) ? hit : surface;
 	}
 	if (any(p < -0.5) || any(p > size - 0.5))
 		return;
@@ -65,7 +73,8 @@ void recover_history(int2 texel, int2 size, float3 world, float distance, float3
 			float4 g = prev_guide.Load(tc);
 			if (g.z <= 0 || g.w < MIRROR_ROUGHNESS || abs(g.w - r) > 0.1)
 				continue;
-			float confidence = disocclusion(N, z, g);
+			float confidence = reproj.moving ? float(moving_surface_compatible(N, linear_view_depth(world, frame), unpack_octahedral_normal(g.xy), g.z))
+					: disocclusion(N, z, g);
 			if (confidence < 0.9)
 				continue;
 			float w = (x == 0 ? 1 - f.x : f.x) * (y == 0 ? 1 - f.y : f.y);
@@ -108,7 +117,7 @@ void compute_main(uint3 tid : SV_DispatchThreadID, uint lane : SV_GroupIndex, ui
 				float4 history = float4(0, 0, 0, 1);
 				float var = 1;
 				if (params.has_history != 0)
-					recover_history(tid.xy, size, world, raw.a, N, r, raw.rgb, history, var);
+					recover_history(tid.xy, p, size, world, raw.a, N, r, raw.rgb, history, var);
 				reprojected[tid.xy] = history;
 				variance[tid.xy] = var;
 				float3 c = history.a > 1 ? lerp(raw.rgb, history.rgb, 0.3) : raw.rgb;

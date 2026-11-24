@@ -6828,6 +6828,7 @@ Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p
 		popup->add_radio_check_item(TTRC("Metallic"), int(DebugViewMode::METALLIC));
 		popup->add_radio_check_item(TTRC("Material AO"), int(DebugViewMode::MATERIAL_AO));
 		popup->add_radio_check_item(TTRC("Depth"), int(DebugViewMode::DEPTH));
+		popup->add_radio_check_item(TTRC("Motion Vectors"), int(DebugViewMode::MOTION_VECTORS));
 
 		popup->add_separator(TTRC("Lighting & Shadows"));
 		popup->add_radio_check_item(TTRC("Lighting"), int(DebugViewMode::LIGHTING));

@@ -32,7 +32,7 @@ Vertex vertex_main(uint vertex : SV_VulkanVertexID, uint instance : SV_VulkanIns
 	o.is_active = ddgi_probe_is_active(o.grid, volume, probe_data) ? 1 : 0;
 	float radius = volume.probe_preview_radius * (o.is_active != 0 ? 1.0 : 0.45);
 	float3 pos = ddgi_probe_world_position(o.grid, volume, probe_data) + radius * o.normal;
-	o.position = mul_4x4(frame.view_projection, float4(pos, 1));
+	o.position = mul_4x4(frame.unjittered_view_projection, float4(pos, 1));
 	return o;
 }
 

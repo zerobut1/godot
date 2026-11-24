@@ -81,7 +81,7 @@ protected:
 	void resolve_draws(RD::FramebufferFormatID p_format, PipelineTable &p_pipelines);
 	BatchMaterial resolve_material(RID p_material, YutrelMaterialBridge &p_bridge, YutrelGeometryBatch *p_transparent);
 	void add_geometry(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_bridge,
-			YutrelGeometryBatch *p_transparent = nullptr, const Vector3 &p_camera_position = {}, const Vector3 &p_camera_forward = {});
+			YutrelGeometryBatch *p_transparent = nullptr, const Vector3 &p_camera_position = {}, const Vector3 &p_camera_forward = {}, const Transform3D *p_prev_transform = nullptr);
 	bool bind_draw(RD::DrawListID p_list, const DrawItem &p_item, RID &r_material_set);
 
 	template <typename T>
@@ -107,6 +107,9 @@ protected:
 public:
 	bool prepare();
 	void clear();
+#ifdef TOOLS_ENABLED
+	uint64_t get_render_hash(uint64_t p_hash) const;
+#endif
 	bool has_draws() const { return !draws.is_empty(); }
 };
 

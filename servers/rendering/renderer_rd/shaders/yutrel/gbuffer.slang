@@ -6,11 +6,13 @@ public struct GBufferTargets
 	public float4 gbuffer_a : SV_Target1;
 	public float4 gbuffer_b : SV_Target2;
 	public float4 gbuffer_c : SV_Target3;
+	public float2 velocity : SV_Target4;
 };
 
-public GBufferTargets encode_gbuffer(SurfaceData surface)
+public GBufferTargets encode_gbuffer(SurfaceData surface, float2 velocity)
 {
 	GBufferTargets result;
+	result.velocity = velocity;
 	result.scene_color = float4(clamp(sanitize_finite(surface.self_illumination()), 0.0, 65504.0), 1.0);
 	result.gbuffer_a = float4(surface.base_color, float(surface.shading_model_id) / 255.0);
 	result.gbuffer_b = float4(surface.normal_ws * 0.5 + 0.5, 0.0);

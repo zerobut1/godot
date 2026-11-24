@@ -55,6 +55,18 @@ enum class SkyMode : uint32_t {
 	HDRI,
 };
 
+enum class UpscalerMode : uint32_t {
+	OFF,
+	FSR2,
+};
+
+enum class UpscalerQuality : uint32_t {
+	NATIVE_AA,
+	QUALITY,
+	BALANCED,
+	PERFORMANCE,
+};
+
 // Shared push constant prefix for ibl.slang and skybox.slang.
 struct YutrelSkyParams {
 	float intensity;
@@ -85,6 +97,10 @@ struct YutrelEnvironmentSettings {
 	bool rt_reflection_half_resolution = true;
 	float rt_reflection_max_roughness = 0.6f;
 	int rt_reflection_samples = 1;
+	UpscalerMode upscaler_mode = UpscalerMode::OFF;
+	UpscalerQuality upscaler_quality = UpscalerQuality::NATIVE_AA;
+	float upscaler_sharpness = 0.2f;
+	uint64_t revision = 0;
 
 	static YutrelEnvironmentSettings get(RID p_environment) {
 		if (p_environment.is_null()) {
@@ -102,7 +118,7 @@ struct YutrelEnvironmentSettings {
 
 	static void set(RID p_environment, const YutrelEnvironmentSettings &p_settings) {
 		MutexLock lock(mutex);
-		settings_by_environment.insert(p_environment, p_settings);
+		settings_by_environment.insert(p_environment, p_settings)->value.revision = ++revision_counter;
 	}
 
 	static void erase(RID p_environment) {
@@ -111,6 +127,7 @@ struct YutrelEnvironmentSettings {
 	}
 
 private:
+	static inline uint64_t revision_counter = 0;
 	static inline Mutex mutex;
 	static inline HashMap<RID, YutrelEnvironmentSettings> settings_by_environment;
 };

@@ -219,7 +219,8 @@ bool RTShadowPass::render(History &h, const DirectionalLightItem &p_light, const
 				Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, h.raw_shadow), Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, light.visibility[prev]),
 				Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, h.prev_depth[prev]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, h.prev_normal[prev]),
 				Uniform(RD::UNIFORM_TYPE_IMAGE, 8, light.visibility[curr]),
-				Uniform(RD::UNIFORM_TYPE_IMAGE, 9, h.prev_depth[curr]), Uniform(RD::UNIFORM_TYPE_IMAGE, 10, h.prev_normal[curr]));
+				Uniform(RD::UNIFORM_TYPE_IMAGE, 9, h.prev_depth[curr]), Uniform(RD::UNIFORM_TYPE_IMAGE, 10, h.prev_normal[curr]),
+				Uniform(RD::UNIFORM_TYPE_TEXTURE, 11, p_targets.velocity));
 		ERR_FAIL_COND_V(temporal_set.is_null(), false);
 
 		// The raw image is free after temporal. Reuse it for the second RG16F filter output.
@@ -245,7 +246,7 @@ bool RTShadowPass::render(History &h, const DirectionalLightItem &p_light, const
 #ifdef TOOLS_ENABLED
 		if (Engine::get_singleton()->is_editor_hint() && DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {
 			const bool stationary = reuse && light.last_scene_hash == p_scene.get_scene_hash() &&
-					memcmp(p_frame.view_projection, h.prev_frame.view_projection, sizeof(p_frame.view_projection)) == 0;
+					memcmp(p_frame.unjittered_view_projection, h.prev_frame.unjittered_view_projection, sizeof(p_frame.unjittered_view_projection)) == 0;
 			light.converged_frames = stationary ? MIN(light.converged_frames + 1, 16u) : 0;
 			if (light.converged_frames < 16) {
 				RenderingServerDefault::redraw_request();

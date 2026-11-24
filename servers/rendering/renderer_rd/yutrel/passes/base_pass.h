@@ -40,8 +40,8 @@ class BasePass : public YutrelGeometryBatch {
 public:
 	BasePass() : YutrelGeometryBatch(BASE) {}
 	void add(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_material_bridge,
-			YutrelGeometryBatch &p_transparent, const Vector3 &p_camera_position, const Vector3 &p_camera_forward) {
-		add_geometry(p_instance, p_camera_mirrored, p_material_bridge, &p_transparent, p_camera_position, p_camera_forward);
+			YutrelGeometryBatch &p_transparent, const Vector3 &p_camera_position, const Vector3 &p_camera_forward, const Transform3D &p_prev_transform) {
+		add_geometry(p_instance, p_camera_mirrored, p_material_bridge, &p_transparent, p_camera_position, p_camera_forward, &p_prev_transform);
 	}
 	bool render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const Color &p_clear_color, RenderingServerTypes::RenderInfo *p_render_info = nullptr);
 };

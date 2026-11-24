@@ -45,6 +45,7 @@
 #include "passes/shadow_mask_pass.h"
 #include "passes/skybox_pass.h"
 #include "passes/transparent_pass.h"
+#include "passes/upscaler_pass.h"
 #include "yutrel_material.h"
 
 #include "servers/rendering/renderer_geometry_instance.h"
@@ -59,12 +60,22 @@ namespace RendererSceneRenderImplementation {
 class RenderYutrel : public RendererSceneRenderRD {
 	class GeometryInstanceYutrel : public RenderGeometryInstanceBase {
 		Data instance_data;
+		Transform3D prev_transform;
+		uint64_t prev_transform_change_frame = 0;
+		bool has_transform = false;
+		bool teleported = false;
 
 	public:
 		GeometryInstanceYutrel(RID p_base, RSE::InstanceType p_type) {
 			data = &instance_data;
 			data->base = p_base;
 			data->base_type = p_type;
+		}
+
+		void set_transform(const Transform3D &p_transform, const AABB &p_aabb, const AABB &p_transformed_aabb) override;
+		void reset_motion_vectors() override;
+		const Transform3D &get_prev_transform(uint64_t p_current_frame) const {
+			return has_transform && prev_transform_change_frame == p_current_frame ? prev_transform : transform;
 		}
 
 		void _mark_dirty() override {}
@@ -89,6 +100,9 @@ class RenderYutrel : public RendererSceneRenderRD {
 	SkyboxPass skybox_pass;
 	TransparentPass transparent_pass;
 	OutputPass output_pass;
+	UpscalerPass upscaler_pass;
+	YutrelShader depth_copy_shader;
+	PipelineCacheRD depth_copy_pipeline;
 	DebugViewPass debug_view_pass;
 	YutrelRayTracingScene rt_scene;
 	PathTracerPass path_tracer_pass;
@@ -101,9 +115,9 @@ class RenderYutrel : public RendererSceneRenderRD {
 	EditorGizmoPass editor_gizmos;
 #endif
 
-	YutrelFrameData _build_frame_data(const RenderDataRD &p_data, const Rect2i &p_region) const;
+	void _copy_output_depth(const YutrelPipelineTargets &p_targets, Vector2 p_jitter_px);
 	void _collect_geometry(const RenderDataRD &p_data);
-	bool _get_native_targets(const RenderDataRD &p_data, YutrelPipelineTargets &r_targets) const;
+	bool _prepare_targets(const RenderDataRD &p_data, bool p_enable_upscaler, UpscalerQuality p_quality, YutrelPipelineTargets &r_targets) const;
 	bool _prepare_passes();
 
 protected:
@@ -114,7 +128,7 @@ protected:
 	void _render_sdfgi(Ref<RenderSceneBuffersRD> p_render_buffers, const Vector3i &p_from, const Vector3i &p_size, const AABB &p_bounds, const PagedArray<RenderGeometryInstance *> &p_instances, const RID &p_albedo_texture, const RID &p_emission_texture, const RID &p_emission_aniso_texture, const RID &p_geom_facing_texture, float p_exposure_normalization) override {}
 	void _render_particle_collider_heightfield(RID p_fb, const Transform3D &p_cam_transform, const Projection &p_cam_projection, const PagedArray<RenderGeometryInstance *> &p_instances) override {}
 	RID _render_buffers_get_normal_texture(Ref<RenderSceneBuffersRD> p_render_buffers) override { return RID(); }
-	RID _render_buffers_get_velocity_texture(Ref<RenderSceneBuffersRD> p_render_buffers) override { return RID(); }
+	RID _render_buffers_get_velocity_texture(Ref<RenderSceneBuffersRD> p_render_buffers) override;
 
 public:
 	RenderGeometryInstance *geometry_instance_create(RID p_base) override;

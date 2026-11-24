@@ -30,18 +30,23 @@ public struct VertexOutput
 	[[vk::location(3)]] public float4 color : COLOR0;
 	[[vk::location(4)]] public float2 uv : TEXCOORD0;
 	[[vk::location(5)]] public nointerpolation uint material_id : TEXCOORD1;
+	[[vk::location(6)]] public float4 curr_clip : TEXCOORD2;
+	[[vk::location(7)]] public float4 prev_clip : TEXCOORD3;
 };
 
 public VertexOutput transform_vertex(VertexInput input, uint draw_id)
 {
 	InstanceData instance = instances[draw_id];
 	MaterialData material = materials[instance.material_id];
-	float3 world = mul_3x4(instance.model, float4(unpack_position(input.position, instance), 1.0));
+	float4 local = float4(unpack_position(input.position, instance), 1.0);
+	float3 world = mul_3x4(instance.model, local);
 	float3 normal, tangent, binormal;
 	unpack_tbn(input.axis_tangent, input.position.w, instance.flags, normal, tangent, binormal);
 
 	VertexOutput output;
 	output.position = mul_4x4(frame.view_projection, float4(world, 1.0));
+	output.curr_clip = mul_4x4(frame.unjittered_view_projection, float4(world, 1));
+	output.prev_clip = mul_4x4(frame.prev_unjittered_view_projection, float4(mul_3x4(instance.prev_model, local), 1));
 	output.normal = normalize(mul_normal_3x3(instance.normal, normal));
 	output.tangent = mul_normal_3x3(instance.model, tangent);
 	output.binormal = mul_normal_3x3(instance.model, binormal);
@@ -68,6 +73,8 @@ struct RasterSurfaceMaps : ISurfaceMaps
 		}
 	}
 };
+
+public uint material_blend_mode(uint id) { return materials[id].blend_mode; }
 
 public SurfaceData sample_surface(VertexOutput input, bool is_front_face, bool transparent)
 {

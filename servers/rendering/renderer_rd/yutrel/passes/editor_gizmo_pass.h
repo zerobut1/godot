@@ -75,10 +75,10 @@ class EditorGizmoPass {
 		uint32_t flags;
 		float padding[2] = {};
 	};
-	static_assert(sizeof(GizmoData) == 208);
-	static_assert(offsetof(GizmoData, albedo) == 144);
-	static_assert(offsetof(GizmoData, uv_scale) == 176);
-	static_assert(offsetof(GizmoData, flags) == 196);
+	static_assert(sizeof(GizmoData) == 256);
+	static_assert(offsetof(GizmoData, albedo) == 192);
+	static_assert(offsetof(GizmoData, uv_scale) == 224);
+	static_assert(offsetof(GizmoData, flags) == 244);
 
 	struct DrawItem {
 		void *surface = nullptr;
@@ -119,6 +119,7 @@ class EditorGizmoPass {
 public:
 	~EditorGizmoPass();
 
+	bool has_draws() const { return !draws.is_empty(); }
 	void clear() { draws.clear(); }
 	void add(const RenderGeometryInstanceBase &p_instance, const Transform3D &p_camera);
 	void render(const YutrelPipelineTargets &p_targets, const RenderSceneDataRD &p_scene, const YutrelFrameData &p_frame);

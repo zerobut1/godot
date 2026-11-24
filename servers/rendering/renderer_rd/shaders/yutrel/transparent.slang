@@ -10,7 +10,7 @@ VertexOutput vertex_main(VertexInput input)
 }
 
 [shader("fragment")]
-float4 fragment_main(VertexOutput input, bool is_front_face : SV_IsFrontFace) : SV_Target0
+TransparentTargets fragment_main(VertexOutput input, bool is_front_face : SV_IsFrontFace)
 {
 	float3 world = reconstruct_world_position(input.position.xy, input.position.z, frame);
 	CascadeShadows shadows = { dot(frame.camera_position.xyz - world, frame.camera_forward.xyz), floor(input.position.xy) };

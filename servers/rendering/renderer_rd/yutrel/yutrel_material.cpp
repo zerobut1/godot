@@ -208,6 +208,9 @@ YutrelMaterialBridge::~YutrelMaterialBridge() {
 	materials->material_set_data_request_function(MaterialStorage::SHADER_TYPE_3D, nullptr);
 	materials->shader_set_data_request_function(MaterialStorage::SHADER_TYPE_3D, nullptr);
 	RD *rd = RD::get_singleton();
+	if (biased_sampler.is_valid()) {
+		rd->free_rid(biased_sampler);
+	}
 	if (white_texture.is_valid()) {
 		rd->free_rid(white_texture);
 	}
@@ -375,8 +378,30 @@ bool YutrelMaterialBridge::get_material(RID p_material, Material &r_material) {
 	return true;
 }
 
+void YutrelMaterialBridge::set_mip_lod_bias(float p_bias) {
+	use_biased_sampler = p_bias != 0;
+	if (!use_biased_sampler || (p_bias == cached_bias && biased_sampler.is_valid())) {
+		return;
+	}
+	RD *rd = RD::get_singleton();
+	if (biased_sampler.is_valid()) {
+		rd->free_rid(biased_sampler);
+	}
+	// Match the bridge's default LINEAR_WITH_MIPMAPS repeat sampler.
+	RD::SamplerState state;
+	state.mag_filter = state.min_filter = state.mip_filter = RD::SAMPLER_FILTER_LINEAR;
+	state.repeat_u = state.repeat_v = state.repeat_w = RD::SAMPLER_REPEAT_MODE_REPEAT;
+	state.lod_bias = p_bias;
+	biased_sampler = rd->sampler_create(state);
+	cached_bias = p_bias;
+}
+
+RID YutrelMaterialBridge::get_material_sampler() const {
+	return use_biased_sampler ? biased_sampler : MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS, RSE::CANVAS_ITEM_TEXTURE_REPEAT_ENABLED);
+}
+
 RID YutrelMaterialBridge::get_uniform_set(RID p_shader, const Material &p_material) const {
-	const RID sampler = MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS, RSE::CANVAS_ITEM_TEXTURE_REPEAT_ENABLED);
+	const RID sampler = get_material_sampler();
 	return UniformSetCacheRD::get_singleton()->get_cache(p_shader, 1,
 			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, ALBEDO, p_material.textures[ALBEDO]),
 			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, NORMAL, p_material.textures[NORMAL]),

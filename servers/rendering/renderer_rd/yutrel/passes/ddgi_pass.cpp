@@ -263,7 +263,7 @@ void DDGIPass::draw_probes(const YutrelPipelineTargets &p_targets, RID p_frame_b
 		debug_pipeline.setup(debug_shader.get_shader(), RD::RENDER_PRIMITIVE_TRIANGLES, {}, {}, depth, RD::PipelineColorBlendState::create_disabled());
 	}
 	RD *rd = RD::get_singleton();
-	const RID fb = FramebufferCacheRD::get_singleton()->get_cache(p_targets.output_color, p_targets.scene_depth);
+	const RID fb = FramebufferCacheRD::get_singleton()->get_cache(p_targets.output_color, p_targets.output_depth);
 	ERR_FAIL_COND(debug_shader.get_shader().is_null() || fb.is_null());
 	const RID pipeline = debug_pipeline.get_render_pipeline(RD::INVALID_FORMAT_ID, rd->framebuffer_get_format(fb));
 	const RID set = UniformSetCacheRD::get_singleton()->get_cache(debug_shader.get_shader(), 0,
@@ -279,7 +279,7 @@ void DDGIPass::draw_probes(const YutrelPipelineTargets &p_targets, RID p_frame_b
 	} params = { p_targets.output_linear, uint32_t(p_environment.tone_mapping), p_environment.exposure };
 	static_assert(sizeof(OutputParams) == 12);
 	rd->draw_command_begin_label("Yutrel DDGI Probes", Color(0.4f, 0.85f, 0.65f));
-	const RD::DrawListID list = rd->draw_list_begin(fb, RD::DRAW_DEFAULT_ALL, {}, 0, 0, p_targets.region);
+	const RD::DrawListID list = rd->draw_list_begin(fb, RD::DRAW_DEFAULT_ALL, {}, 0, 0, p_targets.output_region);
 	rd->draw_list_bind_render_pipeline(list, pipeline);
 	rd->draw_list_bind_uniform_set(list, set, 0);
 	rd->draw_list_set_push_constant(list, &params, sizeof(params));

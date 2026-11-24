@@ -72,13 +72,13 @@ func run() -> void:
 			"Editor debug menu groups views into expected categories")
 	check(labels == PackedStringArray([
 				"Final", "Path Tracer",
-				"Base Color", "World Normal", "Roughness", "Metallic", "Material AO", "Depth",
+				"Base Color", "World Normal", "Roughness", "Metallic", "Material AO", "Depth", "Motion Vectors",
 				"Lighting", "Shadow Mask", "CSM Cascades",
 				"RTAO", "RT Reflection", "DDGI Indirect", "DDGI Probes",
 				"RT Base Color", "RT Shading Normal", "RT Geometric Normal", "RT Roughness", "RT Metallic", "RT Emissive", "RT Hit & Facing",
 			]),
 			"Editor debug menus expose all expected views")
-	if labels.size() != 22:
+	if labels.size() != 23:
 		get_tree().quit(1)
 		return
 

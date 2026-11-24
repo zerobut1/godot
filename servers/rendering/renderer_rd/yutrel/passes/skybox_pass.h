@@ -41,6 +41,7 @@ struct YutrelPipelineTargets;
 class SkyboxPass {
 	YutrelShader shader;
 	PipelineCacheRD pipeline;
+	PipelineCacheRD velocity_only;
 
 public:
 	void prepare();

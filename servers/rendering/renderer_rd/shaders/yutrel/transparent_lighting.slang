@@ -48,7 +48,13 @@ public VertexOutput transparent_vertex(VertexInput input)
 	return transform_vertex(input, draw.draw_id);
 }
 
-public float4 shade_transparent<S : ITransparentShadows>(VertexOutput input, bool is_front_face, float3 world, S shadows)
+public struct TransparentTargets
+{
+	public float4 color : SV_Target0;
+	public float reactive : SV_Target1;
+};
+
+public TransparentTargets shade_transparent<S : ITransparentShadows>(VertexOutput input, bool is_front_face, float3 world, S shadows)
 {
 	SurfaceData surface = sample_surface(input, is_front_face, true);
 	float3 color = surface.self_illumination();
@@ -77,5 +83,9 @@ public float4 shade_transparent<S : ITransparentShadows>(VertexOutput input, boo
 	}
 	color = clamp(sanitize_finite(color), 0.0, 65504.0);
 	// DST_COLOR / ZERO blends this factor directly into the destination.
-	return float4(multiply ? lerp(1.0, color, surface.alpha) : color, surface.alpha);
+	TransparentTargets result;
+	result.color = float4(multiply ? lerp(1.0, color, surface.alpha) : color, surface.alpha);
+	result.reactive = material_blend_mode(input.material_id) == 0 ? saturate(surface.alpha * 0.9)
+			: clamp(max(surface.alpha, max(color.r, max(color.g, color.b))) * 0.9, 0.25, 0.9);
+	return result;
 }

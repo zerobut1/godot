@@ -126,7 +126,7 @@ void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_ddgi.distance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 15, p_ddgi.probe_data),
 	});
-	const RID framebuffer = FramebufferCacheRD::get_singleton()->get_cache(p_targets.scene_color, p_targets.scene_depth);
+	const RID framebuffer = FramebufferCacheRD::get_singleton()->get_cache(p_targets.scene_color, p_targets.reactive_mask, p_targets.scene_depth);
 	ERR_FAIL_COND(set.is_null() || framebuffer.is_null());
 
 	draws.sort_custom<BackToFront>();
@@ -142,7 +142,7 @@ void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame
 	static_assert(sizeof(draw) == 32);
 
 	rd->draw_command_begin_label("Yutrel TransparentPass", Color(0.5, 0.7, 0.9));
-	const RD::DrawListID list = rd->draw_list_begin(framebuffer, RD::DRAW_DEFAULT_ALL, {}, 0.0f, 0, p_targets.region, RDD::BreadcrumbMarker::TRANSPARENT_PASS);
+	const RD::DrawListID list = rd->draw_list_begin(framebuffer, RD::DRAW_CLEAR_COLOR_1, Vector<Color>{ Color(), Color(0, 0, 0, 0) }, 0.0f, 0, p_targets.region, RDD::BreadcrumbMarker::TRANSPARENT_PASS);
 	rd->draw_list_bind_uniform_set(list, set, 0);
 	if (scene_set.is_valid()) {
 		rd->draw_list_bind_uniform_set(list, scene_set, 2);

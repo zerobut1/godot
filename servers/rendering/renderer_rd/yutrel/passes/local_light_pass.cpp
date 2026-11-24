@@ -151,7 +151,7 @@ bool LocalLightPass::collect(const RenderDataRD &p_data) {
 	return local_light_buffer.upload(items, "Yutrel Local Lights");
 }
 
-bool LocalLightPass::build_clusters(const RenderDataRD &p_data, const Rect2i &p_region) {
+bool LocalLightPass::build_clusters(const RenderDataRD &p_data, const Rect2i &p_region, const Projection &p_projection) {
 	RD *rd = RD::get_singleton();
 	constexpr uint32_t cells = GRID_X * GRID_Y * GRID_Z;
 	if (grid.is_null()) {
@@ -167,7 +167,7 @@ bool LocalLightPass::build_clusters(const RenderDataRD &p_data, const Rect2i &p_
 
 	const RenderSceneDataRD &scene = *p_data.scene_data;
 	const Projection view(scene.cam_transform.affine_inverse());
-	const Projection inv_projection = scene.get_cam_projection().inverse();
+	const Projection inv_projection = p_projection.inverse();
 	ClusterParams params = {};
 	for (int row = 0; row < 4; ++row) {
 		for (int col = 0; col < 4; ++col) {

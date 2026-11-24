@@ -53,7 +53,7 @@ bool PathTracerPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_
 	}
 	ERR_FAIL_COND_V(pipeline.is_null(), false);
 
-	uint64_t hash = rt_hash_bytes(p_scene.get_scene_hash(), &p_frame, sizeof(p_frame));
+	uint64_t hash = rt_hash_bytes(p_scene.get_scene_hash(), &p_frame, offsetof(YutrelFrameData, unjittered_view_projection));
 	hash = hash_djb2_one_64(p_local.get_hash(), hash);
 	hash = hash_djb2_one_64(shader.get_version(), hash);
 	hash = hash_djb2_one_64(uint32_t(p_environment.sky_mode), hash);
@@ -88,7 +88,7 @@ bool PathTracerPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_
 		uint32_t local_count;
 	};
 	static_assert(sizeof(Push) == 48);
-	const Rect2i &region = p_targets.region;
+	const Rect2i &region = p_targets.output_region;
 	const Push params = {
 		{ uint32_t(region.position.x), uint32_t(region.position.y) },
 		{ uint32_t(region.size.x), uint32_t(region.size.y) },

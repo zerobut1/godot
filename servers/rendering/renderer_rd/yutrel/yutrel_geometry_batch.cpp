@@ -30,6 +30,10 @@
 
 #include "yutrel_geometry_batch.h"
 
+#ifdef TOOLS_ENABLED
+#include "yutrel_rt_scene.h"
+#endif
+
 #include "servers/rendering/renderer_geometry_instance.h"
 #include "servers/rendering/renderer_rd/storage_rd/mesh_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
@@ -45,7 +49,7 @@ bool YutrelGeometryBatch::prepare_shader(YutrelShader &r_shader, PipelineTable &
 	if (!refresh_shader(r_shader, p_path)) {
 		return r_shader.get_shader().is_valid();
 	}
-	static constexpr int attachment_count[] = { 4, 0, 1 };
+	static constexpr int attachment_count[] = { 5, 0, 2 };
 	RD::PipelineColorBlendState blend = RD::PipelineColorBlendState::create_disabled(attachment_count[pass]);
 	RD::PipelineDepthStencilState depth;
 	depth.enable_depth_test = true;
@@ -61,6 +65,11 @@ bool YutrelGeometryBatch::prepare_shader(YutrelShader &r_shader, PipelineTable &
 			auto attachment = ShaderData::blend_mode_to_blend_attachment(modes[mode]);
 			attachment.write_a = false;
 			blend.attachments.write[0] = attachment;
+			auto &reactive = blend.attachments.write[1];
+			reactive.enable_blend = true;
+			reactive.color_blend_op = reactive.alpha_blend_op = RD::BLEND_OP_MAXIMUM;
+			reactive.src_color_blend_factor = reactive.dst_color_blend_factor = RD::BLEND_FACTOR_ONE;
+			reactive.src_alpha_blend_factor = reactive.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
 		}
 		for (int mirrored = 0; mirrored < 2; mirrored++) {
 			for (int double_sided = 0; double_sided < 2; double_sided++) {
@@ -100,7 +109,7 @@ YutrelGeometryBatch::BatchMaterial YutrelGeometryBatch::resolve_material(RID p_m
 		if (pass == SHADOW) {
 			// Opaque specialization never samples; all opaque materials share one descriptor.
 			const RID albedo = (material.data.flags & YutrelMaterialData::ALPHA_SCISSOR) ? material.textures[YutrelMaterialBridge::ALBEDO] : p_bridge.get_white_texture();
-			const RID sampler = RendererRD::MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS, RSE::CANVAS_ITEM_TEXTURE_REPEAT_ENABLED);
+			const RID sampler = p_bridge.get_material_sampler();
 			batch.material_sets.push_back(UniformSetCacheRD::get_singleton()->get_cache(shader.get_shader(), 1,
 					RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, albedo), RD::Uniform(RD::UNIFORM_TYPE_SAMPLER, 1, sampler)));
 		} else {
@@ -111,7 +120,7 @@ YutrelGeometryBatch::BatchMaterial YutrelGeometryBatch::resolve_material(RID p_m
 	return entry;
 }
 
-void YutrelGeometryBatch::add_geometry(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_material_bridge, YutrelGeometryBatch *p_transparent, const Vector3 &p_camera_position, const Vector3 &p_camera_forward) {
+void YutrelGeometryBatch::add_geometry(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_material_bridge, YutrelGeometryBatch *p_transparent, const Vector3 &p_camera_position, const Vector3 &p_camera_forward, const Transform3D *p_prev_transform) {
 	const auto &data = *p_instance.data;
 	auto *meshes = RendererRD::MeshStorage::get_singleton();
 	if (data.base_type != RSE::INSTANCE_MESH || data.skeleton.is_valid() || meshes->mesh_get_blend_shape_count(data.base) != 0) {
@@ -124,6 +133,9 @@ void YutrelGeometryBatch::add_geometry(const RenderGeometryInstanceBase &p_insta
 
 	YutrelInstanceData gpu_instance;
 	gpu_instance.set_transform(p_instance.transform, p_instance.transform.basis.inverse().transposed());
+	if (p_prev_transform) {
+		RendererRD::MaterialStorage::store_transform_transposed_3x4(*p_prev_transform, &gpu_instance.prev_model[0][0]);
+	}
 	const bool mirrored = (determinant < 0) != p_camera_mirrored;
 	const int surface_count = meshes->mesh_get_surface_count(data.base);
 	for (int surface_index = 0; surface_index < surface_count; surface_index++) {
@@ -176,6 +188,18 @@ void YutrelGeometryBatch::add_geometry(const RenderGeometryInstanceBase &p_insta
 		batch.instances.push_back(surface_instance);
 	}
 }
+
+#ifdef TOOLS_ENABLED
+uint64_t YutrelGeometryBatch::get_render_hash(uint64_t p_hash) const {
+	p_hash = rt_hash_bytes(p_hash, instances.ptr(), instances.size() * sizeof(YutrelInstanceData));
+	p_hash = rt_hash_bytes(p_hash, materials.ptr(), materials.size() * sizeof(YutrelMaterialData));
+	for (const DrawItem &item : draws) {
+		p_hash = hash_djb2_one_64(uintptr_t(item.surface), p_hash);
+		p_hash = hash_djb2_one_64(material_sets[item.material.id].get_id(), p_hash);
+	}
+	return p_hash;
+}
+#endif
 
 bool YutrelGeometryBatch::upload_geometry() {
 	return instance_buffer.upload(instances, "Yutrel Instance SSBO") && material_buffer.upload(materials, "Yutrel Material SSBO");

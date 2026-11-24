@@ -36,8 +36,8 @@ func run(spirv_path: String) -> bool:
 	var half_size := Vector2i(3, 2)
 	var padded := Vector2i(11, 9)
 	var frame := PackedFloat32Array()
-	frame.resize(44)
-	for i in [0, 5, 10, 15, 16, 21, 26, 31]:
+	frame.resize(80)
+	for i in [0, 5, 10, 15, 16, 21, 26, 31, 44, 49, 54, 59, 60, 65, 70, 75]:
 		frame[i] = 1
 	frame[34] = 2
 	frame[38] = 1
@@ -45,7 +45,7 @@ func run(spirv_path: String) -> bool:
 	frame[41] = origin.y
 	frame[42] = 1.0 / full.x
 	frame[43] = 1.0 / full.y
-	var ubo := rd.uniform_buffer_create(176, frame.to_byte_array())
+	var ubo := rd.uniform_buffer_create(320, frame.to_byte_array())
 	var normal := Color(0.5, 0.5, 1, 0.02)
 	var shaded := filled(padded, Image.FORMAT_RGBA8, Color.TRANSPARENT)
 	shaded.fill_rect(Rect2i(origin, full), Color.WHITE)
@@ -53,6 +53,17 @@ func run(spirv_path: String) -> bool:
 	material.set_pixelv(origin + Vector2i(1, 1), Color.WHITE)
 	var radiance := filled(half_size, Image.FORMAT_RGBAH, Color(2, 0.25, 0.5, 1))
 	radiance.set_pixel(2, 1, Color(4, 0, 0, 1))
+	# Two unsampled mirror receivers move identically. Only the first lands
+	# on matching previous depth. A zero-velocity stationary shortcut would miss it.
+	var velocity := filled(padded, Image.FORMAT_RGH, Color.BLACK)
+	for y in 2:
+		velocity.set_pixelv(origin + Vector2i(0, y), Color(2.0 / full.x, 0, 0))
+	var prior := filled(full, Image.FORMAT_RGBAH, Color.TRANSPARENT)
+	prior.set_pixel(2, 0, Color(0, 3, 0, 1))
+	prior.set_pixel(2, 1, Color(0, 5, 0, 1))
+	var guides := filled(full, Image.FORMAT_RGBAH, Color.TRANSPARENT)
+	guides.set_pixel(2, 0, Color(0.5, 0.5, 1, 0))
+	guides.set_pixel(2, 1, Color(0.5, 0.5, 4, 0))
 	var resources := [
 		ubo,
 		texture(filled(padded, Image.FORMAT_RGBAH, normal), RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT),
@@ -64,9 +75,10 @@ func run(spirv_path: String) -> bool:
 		texture(material, RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM),
 		texture(shaded, RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM),
 		ubo,
-		texture(filled(full, Image.FORMAT_RGBAH, Color.TRANSPARENT), RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT),
-		texture(filled(full, Image.FORMAT_RGBAH, Color.TRANSPARENT), RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT),
+		texture(prior, RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT),
+		texture(guides, RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT),
 		texture(filled(full, Image.FORMAT_RGBAH, Color.TRANSPARENT), RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT, true),
+		texture(velocity, RenderingDevice.DATA_FORMAT_R16G16_SFLOAT),
 	]
 	var uniforms: Array[RDUniform] = []
 	for i in resources.size():
@@ -83,7 +95,7 @@ func run(spirv_path: String) -> bool:
 	var list := rd.compute_list_begin()
 	rd.compute_list_bind_compute_pipeline(list, pipeline)
 	rd.compute_list_bind_uniform_set(list, bindings, 0)
-	var params := PackedInt32Array([0, 1, 0, 0, 0]).to_byte_array() # Phase (1,1) clamps at both odd edges.
+	var params := PackedInt32Array([0, 1, 1, 1, 0]).to_byte_array() # Phase (1,1) clamps at both odd edges.
 	params.encode_float(0, 0.6)
 	rd.compute_list_set_push_constant(list, params, params.size())
 	rd.compute_list_dispatch(list, 1, 1, 1)
@@ -92,7 +104,7 @@ func run(spirv_path: String) -> bool:
 	rd.sync()
 	var result := Image.create_from_data(full.x, full.y, false, Image.FORMAT_RGBAH, rd.texture_get_data(resources[6], 0))
 	print("RT_REFLECTION REGION first=%s cut=%s last=%s" % [result.get_pixel(0, 0), result.get_pixel(1, 1), result.get_pixel(4, 2)])
-	var correct := absf(result.get_pixel(0, 0).r - 2) < 0.002 and result.get_pixel(1, 1) == Color(0, 0, 0, 0) and absf(result.get_pixel(4, 2).r - 4) < 0.004
+	var correct := result.get_pixel(0, 0) == Color(0, 3, 0, 1) and absf(result.get_pixel(0, 1).r - 2) < 0.002 and result.get_pixel(1, 1) == Color(0, 0, 0, 0) and absf(result.get_pixel(4, 2).r - 4) < 0.004
 	rd.free_rid(bindings)
 	rd.free_rid(pipeline)
 	rd.free_rid(shader)

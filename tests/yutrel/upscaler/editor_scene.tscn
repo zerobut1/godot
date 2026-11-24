@@ -1,0 +1,53 @@
+[gd_scene format=3]
+
+[sub_resource type="StandardMaterial3D" id="Red"]
+shading_mode = 0
+albedo_color = Color(0.9, 0.1, 0.05, 1)
+
+[sub_resource type="QuadMesh" id="RedQuad"]
+material = SubResource("Red")
+size = Vector2(1.3, 1.3)
+
+[sub_resource type="StandardMaterial3D" id="Glass"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0.05, 0.95, 0.1, 0.75)
+
+[sub_resource type="QuadMesh" id="GlassQuad"]
+material = SubResource("Glass")
+size = Vector2(1, 1)
+
+[sub_resource type="StandardMaterial3D" id="Metal"]
+metallic = 0.75
+roughness = 0.25
+
+[sub_resource type="SphereMesh" id="Sphere"]
+material = SubResource("Metal")
+
+[node name="UpscalerTest" type="Node3D"]
+
+[node name="Environment" type="YutrelEnvironment" parent="."]
+upscaler_mode = 1
+upscaler_quality = 1
+tone_mapping = 3
+sky_color = Color(0.22, 0.32, 0.48, 1)
+shadow_mode = 1
+
+[node name="Rig" type="Node3D" parent="."]
+position = Vector3(0, 0, -4)
+
+[node name="Opaque" type="MeshInstance3D" parent="Rig"]
+mesh = SubResource("RedQuad")
+
+[node name="Glass" type="MeshInstance3D" parent="Rig"]
+position = Vector3(1.55, 0, 0.05)
+mesh = SubResource("GlassQuad")
+
+[node name="Metal" type="MeshInstance3D" parent="Rig"]
+position = Vector3(-1.5, 0, 0)
+mesh = SubResource("Sphere")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.3, 0.3, 0)
+light_angular_distance = 2.0
+shadow_enabled = true

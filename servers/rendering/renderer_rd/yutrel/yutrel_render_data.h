@@ -44,13 +44,22 @@ struct YutrelFrameData {
 	float camera_forward[4] = {};
 	float viewport_origin[2] = {};
 	float inv_viewport_size[2] = {};
+	float unjittered_view_projection[4][4] = {};
+	float prev_unjittered_view_projection[4][4] = {};
+	float jitter_uv[2] = {};
+	float prev_jitter_uv[2] = {};
 };
 
-static_assert(sizeof(YutrelFrameData) == 176);
+static_assert(sizeof(YutrelFrameData) == 320);
 static_assert(offsetof(YutrelFrameData, inv_view_projection) == 64);
 static_assert(offsetof(YutrelFrameData, camera_position) == 128);
 static_assert(offsetof(YutrelFrameData, camera_forward) == 144);
 static_assert(offsetof(YutrelFrameData, viewport_origin) == 160);
+
+static_assert(offsetof(YutrelFrameData, unjittered_view_projection) == 176);
+static_assert(offsetof(YutrelFrameData, prev_unjittered_view_projection) == 240);
+static_assert(offsetof(YutrelFrameData, jitter_uv) == 304);
+static_assert(offsetof(YutrelFrameData, prev_jitter_uv) == 312);
 
 struct YutrelInstanceData {
 	enum Flags : uint32_t {
@@ -68,6 +77,7 @@ struct YutrelInstanceData {
 	float uv_scale[2] = {};
 	uint32_t material_id = 0;
 	uint32_t padding1 = 0;
+	float prev_model[3][4] = {};
 
 	void set_transform(const Transform3D &p_transform, const Basis &p_normal) {
 		RendererRD::MaterialStorage::store_transform_transposed_3x4(p_transform, &model[0][0]);
@@ -87,7 +97,8 @@ struct YutrelInstanceData {
 	}
 };
 
-static_assert(sizeof(YutrelInstanceData) == 144);
+static_assert(sizeof(YutrelInstanceData) == 192);
+static_assert(offsetof(YutrelInstanceData, prev_model) == 144);
 static_assert(offsetof(YutrelInstanceData, normal) == 48);
 static_assert(offsetof(YutrelInstanceData, aabb_position) == 96);
 static_assert(offsetof(YutrelInstanceData, flags) == 108);
@@ -106,11 +117,16 @@ struct YutrelPipelineTargets {
 	RID shadow_mask;
 	RID ao_texture;
 	RID rt_reflection_texture;
+	RID velocity;
+	RID reactive_mask;
+	RID upscaled_color;
+	RID output_depth;
 	RID output_color;
 	RID base_framebuffer;
 	RID lighting_framebuffer;
 	RID output_framebuffer;
 	Rect2i region;
+	Rect2i output_region;
 	bool output_linear = false;
 };
 

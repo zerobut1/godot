@@ -53,7 +53,7 @@ public:
 
 	~LocalLightPass();
 	bool collect(const RenderDataRD &p_data);
-	bool build_clusters(const RenderDataRD &p_data, const Rect2i &p_region);
+	bool build_clusters(const RenderDataRD &p_data, const Rect2i &p_region, const Projection &p_projection);
 	void render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_dfg_lut, YutrelRayTracingScene *p_scene, bool p_clear);
 	RID get_clustered_set(RID p_shader, LocalVector<RD::Uniform> p_uniforms) const;
 	RD::Uniform light_uniform() const { return RD::Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 16, local_light_buffer.get_buffer()); }

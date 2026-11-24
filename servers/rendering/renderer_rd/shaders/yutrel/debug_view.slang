@@ -12,9 +12,11 @@ import gbuffer;
 
 [[vk::binding(7, 0)]] Texture2D<float4> rt_reflection_texture;
 
+[[vk::binding(8, 0)]] Texture2D<float2> velocity;
+
 struct DebugData
 {
-	int2 viewport_origin;
+	int2 viewport_origin, render_size, output_origin, output_size;
 	uint output_linear;
 	uint mode;
 	uint has_primary_shadow;
@@ -30,9 +32,10 @@ float4 vertex_main(uint vertex_id : SV_VulkanVertexID) : SV_Position
 [shader("fragment")]
 float4 fragment_main(float4 position : SV_Position) : SV_Target0
 {
-	int3 pixel = int3(int2(position.xy), 0);
+	float2 uv = (position.xy - debug_data.output_origin) / float2(debug_data.output_size);
+	int3 pixel = int3(debug_data.viewport_origin + int2(uv * debug_data.render_size), 0);
 	float depth = scene_depth.Load(pixel);
-	if (depth <= 0.0 && debug_data.mode != 8 && debug_data.mode != 13)
+	if (depth <= 0.0 && debug_data.mode != 8 && debug_data.mode != 13 && debug_data.mode != 22)
 	{
 		return float4(0.0, 0.0, 0.0, 1.0);
 	}
@@ -68,6 +71,15 @@ float4 fragment_main(float4 position : SV_Position) : SV_Target0
 		{
 			float4 rt = load_viewport_reflection(rt_reflection_texture, pixel.xy - debug_data.viewport_origin);
 			color = rt.a > 0 ? rt.rgb / (1 + rt.rgb) : 0;
+			break;
+		}
+		case 22:
+		{
+			float2 v = velocity.Load(pixel) * debug_data.render_size;
+			float hue = atan2(v.y, v.x) / 6.28318530718;
+			float3 rgb = saturate(abs(frac(hue + float3(0, 2.0 / 3, 1.0 / 3)) * 6 - 3) - 1);
+			color = any(v != 0) ? rgb * saturate(length(v) / 16.0) : 0;
+			display_encoded = true;
 			break;
 		}
 		case 7:

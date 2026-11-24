@@ -1,3 +1,4 @@
+import common;
 import gbuffer;
 import surface;
 
@@ -16,5 +17,5 @@ VertexOutput vertex_main(VertexInput input)
 [shader("fragment")]
 GBufferTargets fragment_main(VertexOutput input, bool is_front_face : SV_IsFrontFace)
 {
-	return encode_gbuffer(sample_surface(input, is_front_face, false));
+	return encode_gbuffer(sample_surface(input, is_front_face, false), motion_vector(input.curr_clip, input.prev_clip));
 }

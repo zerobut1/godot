@@ -213,15 +213,15 @@ void EditorGizmoPass::render(const YutrelPipelineTargets &p_targets, const Rende
 	}
 
 	FrameData frame = {};
-	memcpy(frame.view_projection, p_frame.view_projection, sizeof(frame.view_projection));
+	memcpy(frame.view_projection, p_frame.unjittered_view_projection, sizeof(frame.view_projection));
 	for (int i = 0; i < 3; i++) {
 		frame.camera_x[i] = p_scene.cam_transform.basis.rows[i][0];
 		frame.camera_y[i] = p_scene.cam_transform.basis.rows[i][1];
 		frame.camera_z[i] = p_scene.cam_transform.basis.rows[i][2];
 		frame.camera_position[i] = p_scene.cam_transform.origin[i];
 	}
-	frame.inverse_viewport_size[0] = 1.0f / p_targets.region.size.x;
-	frame.inverse_viewport_size[1] = 1.0f / p_targets.region.size.y;
+	frame.inverse_viewport_size[0] = 1.0f / p_targets.output_region.size.x;
+	frame.inverse_viewport_size[1] = 1.0f / p_targets.output_region.size.y;
 	frame.orthogonal_scale = p_scene.cam_orthogonal ? Math::abs(1.0f / p_scene.cam_projection.columns[1].y) : 0.0f;
 	frame.convert_to_srgb = !p_targets.output_linear;
 	ERR_FAIL_COND(rd->buffer_update(frame_buffer, 0, sizeof(frame), &frame) != OK);
@@ -238,7 +238,7 @@ void EditorGizmoPass::render(const YutrelPipelineTargets &p_targets, const Rende
 	const RID frame_set = uniform_sets->get_cache(shader_rid, 0,
 			RD::Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, frame_buffer),
 			RD::Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 1, instance_buffer.get_buffer()));
-	const RID framebuffer = FramebufferCacheRD::get_singleton()->get_cache(p_targets.output_color, p_targets.scene_depth);
+	const RID framebuffer = FramebufferCacheRD::get_singleton()->get_cache(p_targets.output_color, p_targets.output_depth);
 	ERR_FAIL_COND(framebuffer.is_null() || frame_set.is_null());
 
 	const RID sampler = MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
@@ -256,7 +256,7 @@ void EditorGizmoPass::render(const YutrelPipelineTargets &p_targets, const Rende
 	}
 
 	rd->draw_command_begin_label("Yutrel EditorGizmoPass", Color(0.9, 0.6, 0.2));
-	const RD::DrawListID list = rd->draw_list_begin(framebuffer, RD::DRAW_DEFAULT_ALL, {}, 0.0f, 0, p_targets.region);
+	const RD::DrawListID list = rd->draw_list_begin(framebuffer, RD::DRAW_DEFAULT_ALL, {}, 0.0f, 0, p_targets.output_region);
 	rd->draw_list_bind_uniform_set(list, frame_set, 0);
 	RID bound_material_set;
 	for (uint32_t draw_id = 0; draw_id < draws.size(); draw_id++) {

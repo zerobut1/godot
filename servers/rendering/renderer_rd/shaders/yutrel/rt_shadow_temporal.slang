@@ -1,4 +1,5 @@
 import common;
+import temporal_reprojection;
 import rt_shadow_common;
 
 [[vk::binding(0, 0)]] ConstantBuffer<FrameData> frame;
@@ -12,6 +13,8 @@ import rt_shadow_common;
 [[vk::binding(8, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> curr_history;
 [[vk::binding(9, 0)]] [[vk::image_format("r32f")]] RWTexture2D<float> curr_depth;
 [[vk::binding(10, 0)]] [[vk::image_format("rgba16")]] RWTexture2D<float4> curr_normal;
+
+[[vk::binding(11, 0)]] Texture2D<float2> velocity;
 
 struct TemporalParams
 {
@@ -62,13 +65,13 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 				sum2 += v.x * v.x;
 				taps++;
 			}
-		float4 clip = mul_4x4(prev_frame.view_projection, float4(world, 1));
+		SurfaceReprojection reproj = reproject_surface(pixel, velocity.Load(int3(pixel, 0)), world, frame, prev_frame);
 		float3 history_sum = 0;
 		float weight_sum = 0;
-		if (params.has_history != 0 && clip.w > 0 && clip.z >= 0 && clip.z <= clip.w && all(abs(clip.xy) <= clip.w))
+		if (params.has_history != 0 && reproj.visible)
 		{
 			// History is viewport-local. Add the previous origin only for world reconstruction.
-			float2 prev_full = (clip.xy / clip.w * 0.5 + 0.5) / prev_frame.inv_viewport_size;
+			float2 prev_full = reproj.prev_uv / prev_frame.inv_viewport_size;
 			float2 prev_work = (prev_full - 0.5) / float(params.grid.pixel_scale);
 			int2 base = int2(floor(prev_work));
 			float2 f = frac(prev_work);
@@ -80,8 +83,11 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 						continue;
 					int3 coord = int3(tap, 0);
 					int2 tap_pixel = params.grid.frame_pixel(tap, prev_frame);
-					if (!shadow_surface_compatible(world, N, threshold, tap_pixel,
-							prev_depth.Load(coord), prev_normal.Load(coord), prev_frame))
+					float tap_depth = prev_depth.Load(coord);
+					float4 tap_normal = prev_normal.Load(coord);
+					bool valid = reproj.moving ? moving_history_tap(world, N, tap_pixel, tap_depth, tap_normal, frame, prev_frame)
+							: shadow_surface_compatible(world, N, threshold, tap_pixel, tap_depth, tap_normal, prev_frame);
+					if (!valid)
 						continue;
 					float w = (x == 0 ? 1 - f.x : f.x) * (y == 0 ? 1 - f.y : f.y);
 					history_sum += w * prev_history.Load(coord).rgb;

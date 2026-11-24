@@ -60,6 +60,7 @@ enum class DebugViewMode : uint32_t {
 	RT_METALLIC = 19,
 	RT_EMISSIVE = 20,
 	RT_HIT_FACE = 21,
+	MOTION_VECTORS = 22,
 };
 
 inline bool is_rt_surface_debug_view(DebugViewMode p_mode) {

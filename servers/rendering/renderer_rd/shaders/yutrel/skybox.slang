@@ -19,17 +19,28 @@ float4 vertex_main(uint vertex_id : SV_VulkanVertexID) : SV_Position
 	return fullscreen_position(vertex_id);
 }
 
+struct SkyTargets
+{
+	float4 color : SV_Target0;
+	float2 velocity : SV_Target1;
+};
+
 [shader("fragment")]
 [earlydepthstencil]
-float4 fragment_main(float4 position : SV_Position) : SV_Target0
+SkyTargets fragment_main(float4 position : SV_Position)
 {
+	SkyTargets result;
+	result.velocity = 0;
 	float3 ray = -frame.camera_forward.xyz;
 	if (frame.camera_forward.w == 0.0)
 	{
 		float3 world = reconstruct_world_position(position.xy, 0.5, frame);
 		ray = normalize_or(world - frame.camera_position.xyz, ray);
+		result.velocity = motion_vector(mul_4x4(frame.unjittered_view_projection, float4(ray, 0)),
+				mul_4x4(frame.prev_unjittered_view_projection, float4(ray, 0)));
 	}
 	ray = inverse_sky_rotation(ray, params.sin_rot, params.cos_rot);
 	float3 color = source_cubemap.SampleLevel(cube_sampler, ray, 0.0).rgb * params.intensity;
-	return float4(clamp(sanitize_finite(color), 0.0, 65504.0), 1.0);
+	result.color = float4(clamp(sanitize_finite(color), 0.0, 65504.0), 1.0);
+	return result;
 }

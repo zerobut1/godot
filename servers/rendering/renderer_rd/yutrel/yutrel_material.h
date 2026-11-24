@@ -136,10 +136,15 @@ public:
 
 	static RID get_surface_material(const RenderGeometryInstanceBase &p_instance, RID p_mesh, int p_surface_index);
 	RID get_white_texture();
+	void set_mip_lod_bias(float p_bias);
+	RID get_material_sampler() const;
 	bool get_material(RID p_material, Material &r_material);
 	RID get_uniform_set(RID p_shader, const Material &p_material) const;
 
 private:
+	RID biased_sampler;
+	float cached_bias = 0;
+	bool use_biased_sampler = false;
 	RID white_texture;
 	RID flat_normal_texture;
 };

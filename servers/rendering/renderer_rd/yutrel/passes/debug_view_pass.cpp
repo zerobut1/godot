@@ -39,13 +39,16 @@ namespace RendererSceneRenderImplementation {
 namespace {
 
 struct DebugViewPushConstant {
-	int32_t viewport_origin[2];
+	Point2i viewport_origin;
+	Size2i render_size;
+	Point2i output_origin;
+	Size2i output_size;
 	uint32_t output_linear;
 	uint32_t mode;
 	uint32_t has_primary_shadow;
 };
 
-static_assert(sizeof(DebugViewPushConstant) == 20);
+static_assert(sizeof(DebugViewPushConstant) == 44);
 
 } // namespace
 
@@ -65,9 +68,10 @@ void DebugViewPass::render(const YutrelPipelineTargets &p_targets, DebugViewMode
 			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, p_targets.scene_color),
 			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, p_targets.shadow_mask),
 			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, p_targets.ao_texture),
-			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, p_targets.rt_reflection_texture));
-	const DebugViewPushConstant debug = { { p_targets.region.position.x, p_targets.region.position.y }, p_targets.output_linear, uint32_t(p_mode), p_has_primary_shadow };
-	draw_fullscreen("Yutrel DebugViewPass", Color(0.6, 0.5, 0.9), p_targets.region, p_targets.output_framebuffer, debug_pipeline, debug_set, &debug, sizeof(debug));
+			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, p_targets.rt_reflection_texture),
+			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 8, p_targets.velocity));
+	const DebugViewPushConstant debug = { p_targets.region.position, p_targets.region.size, p_targets.output_region.position, p_targets.output_region.size, p_targets.output_linear, uint32_t(p_mode), p_has_primary_shadow };
+	draw_fullscreen("Yutrel DebugViewPass", Color(0.6, 0.5, 0.9), p_targets.output_region, p_targets.output_framebuffer, debug_pipeline, debug_set, &debug, sizeof(debug));
 }
 
 bool DebugViewPass::render_rt_surface(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, YutrelRayTracingScene &p_scene, DebugViewMode p_mode) {
@@ -83,7 +87,7 @@ bool DebugViewPass::render_rt_surface(const YutrelPipelineTargets &p_targets, RI
 		uint32_t output_linear, mode, has_tlas, padding;
 	} push = { p_targets.output_linear, uint32_t(p_mode), p_scene.has_tlas(), 0 };
 	static_assert(sizeof(push) == 16);
-	draw_fullscreen("Yutrel RTDebugViewPass", Color(0.5, 0.75, 0.9), p_targets.region, p_targets.output_framebuffer, rt_debug_pipeline, frame_set, &push, sizeof(push), false, scene_set);
+	draw_fullscreen("Yutrel RTDebugViewPass", Color(0.5, 0.75, 0.9), p_targets.output_region, p_targets.output_framebuffer, rt_debug_pipeline, frame_set, &push, sizeof(push), false, scene_set);
 	return true;
 }
 

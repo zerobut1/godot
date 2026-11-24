@@ -187,7 +187,7 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, h.guide[prev]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, h.stats[prev]),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 8, p_targets.gbuffer_c), Uniform(RD::UNIFORM_TYPE_IMAGE, 9, h.guide[curr]),
 			Uniform(RD::UNIFORM_TYPE_IMAGE, 10, h.reprojected), Uniform(RD::UNIFORM_TYPE_IMAGE, 11, h.variance), Uniform(RD::UNIFORM_TYPE_IMAGE, 12, h.average),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, h.quad_offset));
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, h.quad_offset), Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_targets.velocity));
 	const RID prefilter_set = sets->get_cache(prefilter.shader.get_shader(), 0, Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, h.raw_reflection),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 1, h.guide[curr]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, h.variance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, h.average), Uniform(RD::UNIFORM_TYPE_IMAGE, 4, h.filtered), Uniform(RD::UNIFORM_TYPE_SAMPLER, 5, linear_clamp));
@@ -203,7 +203,8 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 				Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, h.raw_reflection), Uniform(RD::UNIFORM_TYPE_IMAGE, 6, h.full_reflection[curr]),
 				Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, p_targets.gbuffer_c), Uniform(RD::UNIFORM_TYPE_TEXTURE, 8, p_targets.gbuffer_a),
 				Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 9, h.prev_frame_buffer), Uniform(RD::UNIFORM_TYPE_TEXTURE, 10, h.full_reflection[prev]),
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 11, h.mirror_guide[prev]), Uniform(RD::UNIFORM_TYPE_IMAGE, 12, h.mirror_guide[curr]));
+				Uniform(RD::UNIFORM_TYPE_TEXTURE, 11, h.mirror_guide[prev]), Uniform(RD::UNIFORM_TYPE_IMAGE, 12, h.mirror_guide[curr]),
+				Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, p_targets.velocity));
 		ERR_FAIL_COND_V(upsample_set.is_null(), false);
 	}
 
@@ -225,7 +226,7 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 		uint32_t local_count;
 	} trace_params = { full_size, pixel_scale, dispatch_rows, uint32_t(p_environment.rt_reflection_samples), frame_index, p_lights.size(), p_sky, p_ibl.get_prefilter_max_mip(), p_local.get_count() };
 	const bool same_scene = reuse && h.last_scene_hash == p_scene.get_scene_hash();
-	const bool stationary = reuse && memcmp(p_frame.view_projection, h.prev_frame.view_projection, sizeof(p_frame.view_projection)) == 0;
+	const bool stationary = reuse && memcmp(p_frame.unjittered_view_projection, h.prev_frame.unjittered_view_projection, sizeof(p_frame.unjittered_view_projection)) == 0;
 	struct ReprojectParams {
 		Size2i full_size;
 		uint32_t scale, has_history, stationary;

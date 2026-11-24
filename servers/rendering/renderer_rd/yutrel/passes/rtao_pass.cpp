@@ -143,7 +143,8 @@ bool RTAOPass::render(History &h, const YutrelPipelineTargets &p_targets, RID p_
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, h.prev_normal[prev]),
 			Uniform(RD::UNIFORM_TYPE_IMAGE, 8, h.history[curr]),
 			Uniform(RD::UNIFORM_TYPE_IMAGE, 9, h.prev_depth[curr]),
-			Uniform(RD::UNIFORM_TYPE_IMAGE, 10, h.prev_normal[curr]));
+			Uniform(RD::UNIFORM_TYPE_IMAGE, 10, h.prev_normal[curr]),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 11, p_targets.velocity));
 	// A 1x1 viewport has no separate filtered image. Its raw AO is free after temporal.
 	const RID filtered = h.filtered_ao.is_valid() ? h.filtered_ao : h.raw_ao;
 	const int filter_count = half_res ? 2 : 3;
@@ -200,7 +201,7 @@ bool RTAOPass::render(History &h, const YutrelPipelineTargets &p_targets, RID p_
 	rd->draw_command_end_label();
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
-		const bool stationary = reuse && memcmp(p_frame.view_projection, h.prev_frame.view_projection, sizeof(p_frame.view_projection)) == 0 &&
+		const bool stationary = reuse && memcmp(p_frame.unjittered_view_projection, h.prev_frame.unjittered_view_projection, sizeof(p_frame.unjittered_view_projection)) == 0 &&
 				h.last_scene_hash == p_scene.get_scene_hash() && h.last_intensity == p_environment.rtao_intensity;
 		h.converged_frames = stationary ? MIN(h.converged_frames + 1, 16u) : 0;
 		if (h.converged_frames < 16 && DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {

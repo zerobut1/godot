@@ -39,6 +39,27 @@ class YutrelEnvironment : public Node {
 	GDCLASS(YutrelEnvironment, Node);
 
 public:
+	enum UpscalerMode {
+		UPSCALER_MODE_OFF,
+		UPSCALER_MODE_FSR2,
+	};
+
+	enum UpscalerQuality {
+		UPSCALER_QUALITY_NATIVE_AA,
+		UPSCALER_QUALITY_QUALITY,
+		UPSCALER_QUALITY_BALANCED,
+		UPSCALER_QUALITY_PERFORMANCE,
+	};
+
+	void set_upscaler_mode(UpscalerMode p_value);
+	UpscalerMode get_upscaler_mode() const { return upscaler_mode; }
+
+	void set_upscaler_quality(UpscalerQuality p_value);
+	UpscalerQuality get_upscaler_quality() const { return upscaler_quality; }
+
+	void set_upscaler_sharpness(float p_value);
+	float get_upscaler_sharpness() const { return upscaler_sharpness; }
+
 	enum ShadowMode {
 		SHADOW_MODE_CSM,
 		SHADOW_MODE_RAY_TRACED,
@@ -123,6 +144,9 @@ protected:
 	void _notification(int p_what);
 
 private:
+	UpscalerMode upscaler_mode = UPSCALER_MODE_OFF;
+	UpscalerQuality upscaler_quality = UPSCALER_QUALITY_NATIVE_AA;
+	float upscaler_sharpness = 0.2f;
 	ShadowMode shadow_mode = SHADOW_MODE_CSM;
 	int shadow_resolution = 2048;
 	bool shadow_rt_half_resolution = true;
@@ -151,6 +175,8 @@ private:
 	void _world_changed();
 };
 
+VARIANT_ENUM_CAST(YutrelEnvironment::UpscalerMode);
+VARIANT_ENUM_CAST(YutrelEnvironment::UpscalerQuality);
 VARIANT_ENUM_CAST(YutrelEnvironment::ShadowMode);
 VARIANT_ENUM_CAST(YutrelEnvironment::ToneMapping);
 VARIANT_ENUM_CAST(YutrelEnvironment::SkyMode);

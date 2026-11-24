@@ -49,7 +49,27 @@ static_assert(int(YutrelEnvironment::SKY_MODE_HDRI) == int(RendererSceneRenderIm
 static_assert(int(YutrelEnvironment::SHADOW_MODE_CSM) == int(RendererSceneRenderImplementation::ShadowMode::CSM));
 static_assert(int(YutrelEnvironment::SHADOW_MODE_RAY_TRACED) == int(RendererSceneRenderImplementation::ShadowMode::RAY_TRACED));
 
+static_assert(int(YutrelEnvironment::UPSCALER_MODE_OFF) == int(RendererSceneRenderImplementation::UpscalerMode::OFF));
+static_assert(int(YutrelEnvironment::UPSCALER_MODE_FSR2) == int(RendererSceneRenderImplementation::UpscalerMode::FSR2));
+static_assert(int(YutrelEnvironment::UPSCALER_QUALITY_NATIVE_AA) == int(RendererSceneRenderImplementation::UpscalerQuality::NATIVE_AA));
+static_assert(int(YutrelEnvironment::UPSCALER_QUALITY_QUALITY) == int(RendererSceneRenderImplementation::UpscalerQuality::QUALITY));
+static_assert(int(YutrelEnvironment::UPSCALER_QUALITY_BALANCED) == int(RendererSceneRenderImplementation::UpscalerQuality::BALANCED));
+static_assert(int(YutrelEnvironment::UPSCALER_QUALITY_PERFORMANCE) == int(RendererSceneRenderImplementation::UpscalerQuality::PERFORMANCE));
+
 void YutrelEnvironment::_bind_methods() {
+	BIND_ENUM_CONSTANT(UPSCALER_MODE_OFF);
+	BIND_ENUM_CONSTANT(UPSCALER_MODE_FSR2);
+	BIND_ENUM_CONSTANT(UPSCALER_QUALITY_NATIVE_AA);
+	BIND_ENUM_CONSTANT(UPSCALER_QUALITY_QUALITY);
+	BIND_ENUM_CONSTANT(UPSCALER_QUALITY_BALANCED);
+	BIND_ENUM_CONSTANT(UPSCALER_QUALITY_PERFORMANCE);
+	ClassDB::bind_method(D_METHOD("set_upscaler_mode", "value"), &YutrelEnvironment::set_upscaler_mode);
+	ClassDB::bind_method(D_METHOD("get_upscaler_mode"), &YutrelEnvironment::get_upscaler_mode);
+	ClassDB::bind_method(D_METHOD("set_upscaler_quality", "value"), &YutrelEnvironment::set_upscaler_quality);
+	ClassDB::bind_method(D_METHOD("get_upscaler_quality"), &YutrelEnvironment::get_upscaler_quality);
+	ClassDB::bind_method(D_METHOD("set_upscaler_sharpness", "value"), &YutrelEnvironment::set_upscaler_sharpness);
+	ClassDB::bind_method(D_METHOD("get_upscaler_sharpness"), &YutrelEnvironment::get_upscaler_sharpness);
+
 	ClassDB::bind_method(D_METHOD("set_sky_mode", "sky_mode"), &YutrelEnvironment::set_sky_mode);
 	ClassDB::bind_method(D_METHOD("get_sky_mode"), &YutrelEnvironment::get_sky_mode);
 	ClassDB::bind_method(D_METHOD("set_sky_color", "sky_color"), &YutrelEnvironment::set_sky_color);
@@ -125,6 +145,10 @@ void YutrelEnvironment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rt_reflection_half_resolution"), "set_rt_reflection_half_resolution", "get_rt_reflection_half_resolution");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rt_reflection_max_roughness", PROPERTY_HINT_RANGE, "0.1,1.0,0.05"), "set_rt_reflection_max_roughness", "get_rt_reflection_max_roughness");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "rt_reflection_samples", PROPERTY_HINT_RANGE, "1,4,1"), "set_rt_reflection_samples", "get_rt_reflection_samples");
+	ADD_GROUP("Upscaler", "upscaler_");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "upscaler_mode", PROPERTY_HINT_ENUM, "Off,FSR 2"), "set_upscaler_mode", "get_upscaler_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "upscaler_quality", PROPERTY_HINT_ENUM, "Native AA,Quality,Balanced,Performance"), "set_upscaler_quality", "get_upscaler_quality");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "upscaler_sharpness", PROPERTY_HINT_RANGE, "0.0,1.0,0.05"), "set_upscaler_sharpness", "get_upscaler_sharpness");
 	ADD_GROUP("Tone Mapping", "");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "tone_mapping", PROPERTY_HINT_ENUM, "AgX,AgX Punchy,ACES,None"), "set_tone_mapping", "get_tone_mapping");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure", PROPERTY_HINT_RANGE, "0.0,16.0,0.05,or_greater"), "set_exposure", "get_exposure");
@@ -162,6 +186,24 @@ void YutrelEnvironment::_notification(int p_what) {
 			world.unref();
 		} break;
 	}
+}
+
+void YutrelEnvironment::set_upscaler_mode(UpscalerMode p_value) {
+	ERR_FAIL_COND(p_value < UPSCALER_MODE_OFF || p_value > UPSCALER_MODE_FSR2);
+	upscaler_mode = p_value;
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_upscaler_quality(UpscalerQuality p_value) {
+	ERR_FAIL_COND(p_value < UPSCALER_QUALITY_NATIVE_AA || p_value > UPSCALER_QUALITY_PERFORMANCE);
+	upscaler_quality = p_value;
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_upscaler_sharpness(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	upscaler_sharpness = CLAMP(p_value, 0.0f, 1.0f);
+	_publish_settings();
 }
 
 void YutrelEnvironment::set_shadow_mode(ShadowMode p_mode) {
@@ -298,6 +340,9 @@ void YutrelEnvironment::_publish_settings() {
 			rt_reflection_half_resolution,
 			rt_reflection_max_roughness,
 			rt_reflection_samples,
+			RendererSceneRenderImplementation::UpscalerMode(upscaler_mode),
+			RendererSceneRenderImplementation::UpscalerQuality(upscaler_quality),
+			upscaler_sharpness,
 		};
 		YutrelEnvironmentSettings::set(internal_environment->get_rid(), settings);
 		RenderingServerDefault::redraw_request();
