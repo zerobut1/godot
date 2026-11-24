@@ -37,14 +37,18 @@
 namespace RendererSceneRenderImplementation {
 
 struct YutrelPipelineTargets;
+class YutrelRayTracingScene;
 
 class DebugViewPass {
 	YutrelShader debug_shader;
 	PipelineCacheRD debug_pipeline;
+	YutrelShader rt_debug_shader;
+	PipelineCacheRD rt_debug_pipeline;
 
 public:
 	bool prepare();
 	void render(const YutrelPipelineTargets &p_targets, DebugViewMode p_mode, bool p_has_primary_shadow);
+	bool render_rt_surface(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, YutrelRayTracingScene &p_scene, DebugViewMode p_mode);
 };
 
 } // namespace RendererSceneRenderImplementation

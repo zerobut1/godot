@@ -32,6 +32,7 @@
 
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
 #include "servers/rendering/renderer_rd/yutrel/yutrel_render_data.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_rt_scene.h"
 
 namespace RendererSceneRenderImplementation {
 
@@ -67,6 +68,23 @@ void DebugViewPass::render(const YutrelPipelineTargets &p_targets, DebugViewMode
 			RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, p_targets.rt_reflection_texture));
 	const DebugViewPushConstant debug = { { p_targets.region.position.x, p_targets.region.position.y }, p_targets.output_linear, uint32_t(p_mode), p_has_primary_shadow };
 	draw_fullscreen("Yutrel DebugViewPass", Color(0.6, 0.5, 0.9), p_targets.region, p_targets.output_framebuffer, debug_pipeline, debug_set, &debug, sizeof(debug));
+}
+
+bool DebugViewPass::render_rt_surface(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, YutrelRayTracingScene &p_scene, DebugViewMode p_mode) {
+	if (refresh_shader(rt_debug_shader, "rt_debug_view.slang")) {
+		rt_debug_pipeline.setup(rt_debug_shader.get_shader(), RD::RENDER_PRIMITIVE_TRIANGLES, {}, {}, {}, RD::PipelineColorBlendState::create_disabled());
+	}
+	const RID shader = rt_debug_shader.get_shader();
+	ERR_FAIL_COND_V(shader.is_null(), false);
+	const RID frame_set = UniformSetCacheRD::get_singleton()->get_cache(shader, 0, RD::Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, p_frame_buffer));
+	const RID scene_set = p_scene.get_uniform_set(shader);
+	ERR_FAIL_COND_V(frame_set.is_null() || scene_set.is_null(), false);
+	struct RTDebugData {
+		uint32_t output_linear, mode, has_tlas, padding;
+	} push = { p_targets.output_linear, uint32_t(p_mode), p_scene.has_tlas(), 0 };
+	static_assert(sizeof(push) == 16);
+	draw_fullscreen("Yutrel RTDebugViewPass", Color(0.5, 0.75, 0.9), p_targets.region, p_targets.output_framebuffer, rt_debug_pipeline, frame_set, &push, sizeof(push), false, scene_set);
+	return true;
 }
 
 } // namespace RendererSceneRenderImplementation

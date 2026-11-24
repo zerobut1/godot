@@ -6720,7 +6720,9 @@ void Node3DEditorViewport::_yutrel_menu_option(int p_id) {
 
 	PopupMenu *popup = yutrel_menu->get_popup();
 	for (int i = 0; i < popup->get_item_count(); ++i) {
-		popup->set_item_checked(i, popup->get_item_id(i) == p_id);
+		if (popup->is_item_radio_checkable(i)) {
+			popup->set_item_checked(i, popup->get_item_id(i) == p_id);
+		}
 	}
 }
 
@@ -6815,22 +6817,40 @@ Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p
 		yutrel_menu->set_flat(false);
 		hbox->add_child(yutrel_menu);
 		PopupMenu *popup = yutrel_menu->get_popup();
+		popup->add_separator(TTRC("Output"));
 		popup->add_radio_check_item(TTRC("Final"), int(DebugViewMode::FINAL));
-		popup->add_radio_check_item(TTRC("Albedo"), int(DebugViewMode::ALBEDO));
+		popup->add_radio_check_item(TTRC("Path Tracer"), int(DebugViewMode::PATH_TRACER));
+
+		popup->add_separator(TTRC("G-Buffer"));
+		popup->add_radio_check_item(TTRC("Base Color"), int(DebugViewMode::ALBEDO));
 		popup->add_radio_check_item(TTRC("World Normal"), int(DebugViewMode::WORLD_NORMAL));
 		popup->add_radio_check_item(TTRC("Roughness"), int(DebugViewMode::ROUGHNESS));
 		popup->add_radio_check_item(TTRC("Metallic"), int(DebugViewMode::METALLIC));
 		popup->add_radio_check_item(TTRC("Material AO"), int(DebugViewMode::MATERIAL_AO));
-		popup->add_radio_check_item(TTRC("Lighting"), int(DebugViewMode::LIGHTING));
-		popup->set_item_tooltip(-1, TTR("Shows directional and ambient light contributions."));
 		popup->add_radio_check_item(TTRC("Depth"), int(DebugViewMode::DEPTH));
+
+		popup->add_separator(TTRC("Lighting & Shadows"));
+		popup->add_radio_check_item(TTRC("Lighting"), int(DebugViewMode::LIGHTING));
+		popup->set_item_tooltip(-1, TTR("Shows directional, local, and indirect light contributions."));
 		popup->add_radio_check_item(TTRC("Shadow Mask"), int(DebugViewMode::SHADOW_MASK));
 		popup->add_radio_check_item(TTRC("CSM Cascades"), int(DebugViewMode::CSM_CASCADES));
-		popup->add_radio_check_item(TTRC("Path Tracer"), int(DebugViewMode::PATH_TRACER));
-		popup->add_radio_check_item(TTRC("DDGI Indirect"), int(DebugViewMode::DDGI_INDIRECT));
-		popup->add_radio_check_item(TTRC("DDGI Probes"), int(DebugViewMode::DDGI_PROBES));
+
+		popup->add_separator(TTRC("Indirect & RT"));
 		popup->add_radio_check_item(TTRC("RTAO"), int(DebugViewMode::RTAO));
 		popup->add_radio_check_item(TTRC("RT Reflection"), int(DebugViewMode::RT_REFLECTION));
+		popup->add_radio_check_item(TTRC("DDGI Indirect"), int(DebugViewMode::DDGI_INDIRECT));
+		popup->add_radio_check_item(TTRC("DDGI Probes"), int(DebugViewMode::DDGI_PROBES));
+
+		popup->add_separator(TTRC("RT Surface"));
+		popup->add_radio_check_item(TTRC("RT Base Color"), int(DebugViewMode::RT_ALBEDO));
+		popup->add_radio_check_item(TTRC("RT Shading Normal"), int(DebugViewMode::RT_WORLD_NORMAL));
+		popup->add_radio_check_item(TTRC("RT Geometric Normal"), int(DebugViewMode::RT_GEOMETRIC_NORMAL));
+		popup->add_radio_check_item(TTRC("RT Roughness"), int(DebugViewMode::RT_ROUGHNESS));
+		popup->add_radio_check_item(TTRC("RT Metallic"), int(DebugViewMode::RT_METALLIC));
+		popup->add_radio_check_item(TTRC("RT Emissive"), int(DebugViewMode::RT_EMISSIVE));
+		popup->add_radio_check_item(TTRC("RT Hit & Facing"), int(DebugViewMode::RT_HIT_FACE));
+		popup->set_item_tooltip(-1, TTR("Green: front face, Yellow: double-sided back face, Red: single-sided back face, Black: miss."));
+
 		popup->set_item_checked(popup->get_item_index(int(DebugViewMode::FINAL)), true);
 		popup->connect(SceneStringName(id_pressed), callable_mp(this, &Node3DEditorViewport::_yutrel_menu_option));
 	}

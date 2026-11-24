@@ -227,6 +227,11 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		WARN_PRINT_ONCE("Yutrel Path Tracer requires ray queries and non-uniform indexing of 2049 sampled images per stage. Falling back to Final.");
 		settings.debug_view = DebugViewMode::FINAL;
 	}
+	if (is_rt_surface_debug_view(settings.debug_view) && !YutrelRayTracingScene::is_supported(0)) {
+		WARN_PRINT_ONCE("Yutrel RT Surface views require ray queries and a 2048-image material table. Falling back to Final.");
+		settings.debug_view = DebugViewMode::FINAL;
+	}
+	const bool rt_surface_debug = is_rt_surface_debug_view(settings.debug_view);
 
 	const YutrelFrameData frame = _build_frame_data(*p_render_data, targets.region);
 	if (frame_buffer.is_null()) {
@@ -247,8 +252,11 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	if (!environment.rt_reflection_enabled && custom->rt_reflection_history.get_output().is_valid()) {
 		custom->rt_reflection_history.clear();
 	}
-	ERR_FAIL_COND(!local_light_pass.collect(*p_render_data));
-	LocalVector<DirectionalLightItem> lights = DirectionalLightPass::collect(*p_render_data);
+	LocalVector<DirectionalLightItem> lights;
+	if (!rt_surface_debug) {
+		ERR_FAIL_COND(!local_light_pass.collect(*p_render_data));
+		lights = DirectionalLightPass::collect(*p_render_data);
+	}
 	if (settings.debug_view == DebugViewMode::PATH_TRACER) {
 		custom->rt_shadow_history.invalidate();
 		custom->rt_reflection_history.has_history = false;
@@ -282,7 +290,10 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		RendererRD::TextureStorage::get_singleton()->render_target_disable_clear_request(targets.render_target);
 		return;
 	}
-	if (!_prepare_passes()) {
+	if (rt_surface_debug) {
+		// Geometry collection resolves material sets for both opaque and transparent batches.
+		ERR_FAIL_COND(!base_pass.prepare() || !transparent_pass.prepare());
+	} else if (!_prepare_passes()) {
 		return;
 	}
 	RENDER_TIMESTAMP("Yutrel Collect Geometry");
@@ -305,7 +316,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 			break;
 		}
 	}
-	if (!want_rt_shadow) {
+	if (!want_rt_shadow && !rt_surface_debug) {
 		RENDER_TIMESTAMP("Yutrel CSM Shadows");
 		ERR_FAIL_COND(!csm_shadow_pass.prepare() || !csm_shadow_pass.render(*p_render_data, lights, environment.shadow_resolution, material_bridge));
 	}
@@ -336,7 +347,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	const bool opaque_local_rt = draw_lighting && local_light_pass.has_shadows() && YutrelRayTracingScene::is_supported(LocalLightPass::RT_SAMPLED_IMAGES);
 	const bool transparent_local_rt = transparent_rt_supported && local_light_pass.has_shadows();
 	const bool needs_local_rt_shadow = opaque_local_rt || transparent_local_rt;
-	if (needs_ddgi || needs_rtao || needs_rt_shadow || needs_rt_reflection || needs_local_rt_shadow) {
+	if (needs_ddgi || needs_rtao || needs_rt_shadow || needs_rt_reflection || needs_local_rt_shadow || rt_surface_debug) {
 		RENDER_TIMESTAMP("Yutrel RT Scene Update");
 		rt_ready = rt_scene.update(*p_render_data, material_bridge);
 	}
@@ -443,6 +454,12 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		if (probes && ddgi_ready) {
 			RENDER_TIMESTAMP("Yutrel DDGI Probes");
 			ddgi_pass.draw_probes(targets, frame_buffer, custom->ddgi_history, environment);
+		}
+	} else if (rt_surface_debug) {
+		RENDER_TIMESTAMP("Yutrel RT Surface Debug View");
+		if (!rt_ready || !debug_view_pass.render_rt_surface(targets, frame_buffer, rt_scene, settings.debug_view)) {
+			rd->draw_list_begin(targets.output_framebuffer, RD::DRAW_CLEAR_COLOR_0, { Color(0, 0, 0, 1) }, 0.0f, 0, targets.region);
+			rd->draw_list_end();
 		}
 	} else {
 		RENDER_TIMESTAMP("Yutrel Debug View");

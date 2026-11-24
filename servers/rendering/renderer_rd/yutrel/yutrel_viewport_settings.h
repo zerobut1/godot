@@ -36,7 +36,7 @@
 
 namespace RendererSceneRenderImplementation {
 
-// Mode values are shared with debug_view.slang.
+// Mode values are shared with debug_view.slang and rt_debug_view.slang.
 enum class DebugViewMode : uint32_t {
 	FINAL,
 	ALBEDO,
@@ -53,7 +53,18 @@ enum class DebugViewMode : uint32_t {
 	DDGI_PROBES,
 	RTAO,
 	RT_REFLECTION,
+	RT_ALBEDO = 15,
+	RT_WORLD_NORMAL = 16,
+	RT_GEOMETRIC_NORMAL = 17,
+	RT_ROUGHNESS = 18,
+	RT_METALLIC = 19,
+	RT_EMISSIVE = 20,
+	RT_HIT_FACE = 21,
 };
+
+inline bool is_rt_surface_debug_view(DebugViewMode p_mode) {
+	return uint32_t(p_mode) >= uint32_t(DebugViewMode::RT_ALBEDO) && uint32_t(p_mode) <= uint32_t(DebugViewMode::RT_HIT_FACE);
+}
 
 struct YutrelViewportSettings {
 	DebugViewMode debug_view = DebugViewMode::FINAL;
