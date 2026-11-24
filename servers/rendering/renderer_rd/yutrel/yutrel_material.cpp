@@ -30,6 +30,8 @@
 
 #include "yutrel_material.h"
 
+#include "yutrel_material_settings.h"
+
 #include "servers/rendering/renderer_geometry_instance.h"
 #include "servers/rendering/renderer_rd/storage_rd/mesh_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
@@ -256,6 +258,22 @@ bool YutrelMaterialBridge::get_material(RID p_material, Material &r_material) {
 	if (p_material.is_null()) {
 		return true;
 	}
+	YutrelMaterialSettings native;
+	if (YutrelMaterialSettings::get(p_material, native)) {
+		r_material.data = native.data;
+		r_material.transparent = (native.data.flags & YutrelMaterialData::TRANSPARENT) != 0;
+		r_material.blend_mode = BlendMode(native.data.blend_mode);
+		r_material.render_priority = native.render_priority;
+		for (int i = 0; i < TEXTURE_COUNT; i++) {
+			if (native.textures[i].is_valid()) {
+				const RID texture = TextureStorage::get_singleton()->texture_get_rd_texture(native.textures[i], i == ALBEDO || i == EMISSION);
+				if (texture.is_valid()) {
+					r_material.textures[i] = texture;
+				}
+			}
+		}
+		return true;
+	}
 	const BridgeMaterialData *source = get_bridge_data(p_material);
 	if (!source || !source->shader->standard) {
 		return false;
@@ -269,6 +287,10 @@ bool YutrelMaterialBridge::get_material(RID p_material, Material &r_material) {
 	r_material.blend_mode = shader.blend_mode;
 	r_material.render_priority = source->priority;
 	data.flags = shader.flags;
+	if (shader.transparent) {
+		data.flags |= YutrelMaterialData::TRANSPARENT;
+	}
+	data.blend_mode = shader.blend_mode;
 	const auto param = [&](const StringName &p_name) { return materials->material_get_param(p_material, p_name); };
 	const auto scalar = [&](const StringName &p_name, float p_default) {
 		const Variant value = param(p_name);

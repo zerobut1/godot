@@ -49,6 +49,13 @@
 #include "scene/resources/sky.h"
 #include "servers/rendering/rendering_server.h"
 
+#include "modules/modules_enabled.gen.h"
+#ifdef MODULE_YUTREL_ENABLED
+#include "core/config/engine.h"
+#include "core/io/resource_loader.h"
+#include "modules/yutrel/yutrel_material.h"
+#endif
+
 // 3D.
 #include "scene/3d/camera_3d.h"
 #include "scene/3d/light_3d.h"
@@ -473,6 +480,27 @@ void EditorInspectorPluginMaterial::parse_begin(Object *p_object) {
 void EditorInspectorPluginMaterial::_undo_redo_inspector_callback(Object *p_undo_redo, Object *p_edited, const String &p_property, const Variant &p_new_value) {
 	EditorUndoRedoManager *undo_redo = Object::cast_to<EditorUndoRedoManager>(p_undo_redo);
 	ERR_FAIL_NULL(undo_redo);
+
+#ifdef MODULE_YUTREL_ENABLED
+	YutrelMaterial *native = Object::cast_to<YutrelMaterial>(p_edited);
+	if (native && Engine::get_singleton()->is_editor_hint() && !ResourceLoader::is_within_load()) {
+		if ((p_property != "metallic_texture" && p_property != "emissive_texture") || !Object::cast_to<Texture2D>(p_new_value)) {
+			return;
+		}
+		if (p_property == "metallic_texture" && native->get_metallic() == 0.0f) {
+			undo_redo->add_do_property(native, "metallic", 1.0f);
+			undo_redo->add_undo_property(native, "metallic", 0.0f);
+		} else if (p_property == "emissive_texture" && native->get_emissive_color() == Color(0, 0, 0)) {
+			undo_redo->add_do_property(native, "emissive_color", Color(1, 1, 1));
+			undo_redo->add_undo_property(native, "emissive_color", Color(0, 0, 0));
+		} else {
+			return;
+		}
+		undo_redo->add_do_method(native, "notify_property_list_changed");
+		undo_redo->add_undo_method(native, "notify_property_list_changed");
+		return;
+	}
+#endif
 
 	// For BaseMaterial3D, if a roughness or metallic textures is being assigned to an empty slot,
 	// set the respective metallic or roughness factor to 1.0 as a convenience feature

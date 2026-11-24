@@ -38,7 +38,7 @@ float4 fragment_main(float4 position : SV_Position) : SV_Target0
 	}
 	float4 a = gbuffer_a.Load(pixel);
 	float4 b = gbuffer_b.Load(pixel);
-	GBufferData surface = decode_gbuffer(a, b, gbuffer_c.Load(pixel));
+	SurfaceData surface = decode_gbuffer(a, b, gbuffer_c.Load(pixel));
 	float3 color = float3(0.0);
 	bool display_encoded = false;
 	// DDGI Indirect (11) and DDGI Probes (12) use the HDR output pass.

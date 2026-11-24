@@ -32,6 +32,7 @@
 
 #include "yutrel_ddgi_volume.h"
 #include "yutrel_environment.h"
+#include "yutrel_material.h"
 
 #ifdef TOOLS_ENABLED
 #include "yutrel_ddgi_gizmo.h"
@@ -41,6 +42,7 @@
 
 void initialize_yutrel_module(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
+		GDREGISTER_CLASS(YutrelMaterial);
 		GDREGISTER_CLASS(YutrelEnvironment);
 		GDREGISTER_CLASS(YutrelDDGIVolume);
 	}

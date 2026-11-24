@@ -40,7 +40,7 @@ float4 fragment_main(float4 position : SV_Position) : SV_Target0
 	{
 		discard;
 	}
-	GBufferData surface = decode_gbuffer(a, gbuffer_b.Load(pixel), gbuffer_c.Load(pixel));
+	SurfaceData surface = decode_gbuffer(a, gbuffer_b.Load(pixel), gbuffer_c.Load(pixel));
 	float3 world = reconstruct_world_position(position.xy, depth, frame);
 	ShadingData p = prepare_shading(surface, frame, world, dfg_lut, linear_clamp);
 	DDGIResources probes = { probe_irradiance, probe_distance, probe_data, linear_clamp };

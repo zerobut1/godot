@@ -1,5 +1,4 @@
 import common;
-import gbuffer;
 import ibl_lighting;
 import ddgi_common;
 import pbr;
@@ -51,9 +50,8 @@ public VertexOutput transparent_vertex(VertexInput input)
 
 public float4 shade_transparent<S : ITransparentShadows>(VertexOutput input, bool is_front_face, float3 world, S shadows)
 {
-	float alpha;
-	float3 color;
-	GBufferData surface = sample_surface(input, is_front_face, true, alpha, color);
+	SurfaceData surface = sample_surface(input, is_front_face, true);
+	float3 color = surface.self_illumination();
 	if (surface.shading_model_id == SHADING_STANDARD)
 	{
 		ShadingData p = prepare_shading(surface, frame, world, dfg_lut, linear_clamp);
@@ -79,5 +77,5 @@ public float4 shade_transparent<S : ITransparentShadows>(VertexOutput input, boo
 	}
 	color = clamp(sanitize_finite(color), 0.0, 65504.0);
 	// DST_COLOR / ZERO blends this factor directly into the destination.
-	return float4(multiply ? lerp(1.0, color, alpha) : color, alpha);
+	return float4(multiply ? lerp(1.0, color, surface.alpha) : color, surface.alpha);
 }

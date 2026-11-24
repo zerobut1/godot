@@ -72,17 +72,15 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 	}
 	else
 	{
-		radiance = hit.emissive;
-		if (hit.is_unlit)
-			radiance += hit.base_color;
-		else
+		radiance = hit.surface.self_illumination();
+		if (hit.surface.shading_model_id == SHADING_STANDARD)
 		{
-			float3 albedo = hit.base_color * (1 - hit.metallic);
+			float3 albedo = hit.surface.base_color * (1 - hit.surface.metallic);
 			float3 origin = offset_ray_origin(hit.world_pos, hit.geometric_normal);
 			for (uint i = 0; i < params.light_count; ++i)
 			{
 				float3 L = lights[i].direction.xyz;
-				float NoL = dot(hit.shading_normal, L);
+				float NoL = dot(hit.surface.normal_ws, L);
 				if (NoL > 0 && !trace_shadow_ray(origin, L, 0, 1e20))
 					radiance += albedo * (NoL / PI) * lights[i].radiance;
 			}
@@ -91,16 +89,16 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 			{
 				float3 L;
 				float NoL;
-				radiance += (albedo / PI) * shadow.incident_light(local_lights[i], hit.world_pos, hit.shading_normal, L, NoL);
+				radiance += (albedo / PI) * shadow.incident_light(local_lights[i], hit.world_pos, hit.surface.normal_ws, L, NoL);
 			}
 			if (volume.infinite_bounces != 0 && volume.reset_history == 0)
 			{
 				float weight = ddgi_volume_blend_weight(hit.world_pos, volume);
 				if (weight > 0)
 				{
-					float3 bias = ddgi_surface_bias(hit.shading_normal, dir, volume);
+					float3 bias = ddgi_surface_bias(hit.surface.normal_ws, dir, volume);
 					DDGIResources probes = { irradiance, distance, probe_data, linear_clamp };
-					float3 E = ddgi_get_volume_irradiance(hit.world_pos, bias, hit.shading_normal, volume, probes);
+					float3 E = ddgi_get_volume_irradiance(hit.world_pos, bias, hit.surface.normal_ws, volume, probes);
 					radiance += min(albedo, 0.9) * (weight / PI) * E;
 				}
 			}

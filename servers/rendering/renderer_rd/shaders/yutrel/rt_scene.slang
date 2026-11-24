@@ -1,4 +1,5 @@
 import common;
+import surface_evaluation;
 
 struct RTVertex
 {
@@ -22,7 +23,7 @@ struct RTSurface
 
 struct RTMaterialTextures
 {
-	uint albedo, normal, roughness, metallic, ao, emissive;
+	uint slots[6];
 	uint2 padding;
 };
 
@@ -43,9 +44,11 @@ struct RTMaterialTextures
 
 public struct RTHit
 {
-	public float3 world_pos, geometric_normal, shading_normal, base_color, emissive;
-	public float roughness, metallic, specular, t;
-	public bool is_front_face, is_unlit, is_double_sided;
+	public SurfaceData surface;
+	public float3 world_pos, geometric_normal;
+	public float t;
+	public uint blend_mode;
+	public bool is_front_face, is_double_sided, transparent;
 };
 
 public float3 offset_ray_origin(float3 p, float3 n)
@@ -94,15 +97,20 @@ Triangle load_triangle(RTSurface s, uint primitive, float2 bary)
 	return tri;
 }
 
-static const uint CULL_FRONT = 256;
+// Must match YutrelRayTracingScene's instance visibility masks.
+static const uint MASK_SHADOW = 1;
+static const uint MASK_SURFACE = 2;
+static const uint MASK_TRANSLUCENT = 4;
 
-bool accept_candidate(uint instance, uint geometry, uint primitive, float2 bary, float3 dir, bool shadow, bool include_backfaces = false)
+bool accept_candidate(uint instance, uint geometry, uint primitive, float2 bary, float3 dir, bool shadow, bool include_backfaces = false, bool include_transparent = false)
 {
 	RTInstance inst = rt_instances[instance];
 	RTSurface s = rt_surfaces[inst.first_surface + geometry];
 	if ((s.flags & 1) != 0 || (!shadow && (inst.flags & 2) != 0))
 		return false;
 	MaterialData mat = rt_materials[s.material_id];
+	if (!include_transparent && (mat.flags & TRANSPARENT) != 0)
+		return false;
 	bool check_side = !include_backfaces && (mat.flags & DOUBLE_SIDED) == 0 && (!shadow || (mat.flags & CULL_FRONT) != 0);
 	if (!check_side && (mat.flags & ALPHA_SCISSOR) == 0)
 		return true;
@@ -112,7 +120,7 @@ bool accept_candidate(uint instance, uint geometry, uint primitive, float2 bary,
 		return false;
 	if ((mat.flags & ALPHA_SCISSOR) == 0)
 		return true;
-	float alpha = mat.albedo.a * sample_map(rt_material_textures[s.material_id].albedo, tri.uv(mat), 0.0).a;
+	float alpha = mat.albedo.a * sample_map(rt_material_textures[s.material_id].slots[uint(SurfaceTexture::Albedo)], tri.uv(mat), 0.0).a;
 	if ((mat.flags & VERTEX_COLOR) != 0)
 		alpha *= dot(tri.weights, float3(tri.a.color.a, tri.b.color.a, tri.c.color.a));
 	return alpha >= mat.alpha_scissor_threshold;
@@ -122,8 +130,8 @@ public bool trace_shadow_ray(float3 origin, float3 dir, float t_min, float t_max
 {
 	RayDesc ray = { origin, t_min, dir, t_max };
 	RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
-	q.TraceRayInline(rt_tlas, RAY_FLAG_NONE, 0x01, ray);
-	for (uint i = 0; i < 64 && q.Proceed(); ++i)
+	q.TraceRayInline(rt_tlas, RAY_FLAG_NONE, MASK_SHADOW, ray);
+	while (q.Proceed())
 	{
 		if (accept_candidate(q.CandidateInstanceID(), q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics(), dir, true))
 		{
@@ -139,8 +147,8 @@ public bool trace_shadow_ray_distance(float3 origin, float3 dir, float t_min, fl
 {
 	RayDesc ray = { origin, t_min, dir, t_max };
 	RayQuery<RAY_FLAG_NONE> q;
-	q.TraceRayInline(rt_tlas, RAY_FLAG_NONE, 0x01, ray);
-	for (uint i = 0; i < 64 && q.Proceed(); ++i)
+	q.TraceRayInline(rt_tlas, RAY_FLAG_NONE, MASK_SHADOW, ray);
+	while (q.Proceed())
 	{
 		if (accept_candidate(q.CandidateInstanceID(), q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics(), dir, true))
 			q.CommitNonOpaqueTriangleHit();
@@ -167,8 +175,26 @@ float cone_mip(uint index, float uv_lod, bool use_cone)
 	return clamp(uv_lod + 0.5 * log2(float(width) * height), 0, 8);
 }
 
+struct RTSurfaceMaps : ISurfaceMaps
+{
+	RTMaterialTextures textures;
+	float2 uv;
+	float uv_lod;
+	bool use_cone;
+
+	float lod(SurfaceTexture slot)
+	{
+		return cone_mip(textures.slots[uint(slot)], uv_lod, use_cone);
+	}
+
+	float4 sample_texture(SurfaceTexture slot)
+	{
+		return sample_map(textures.slots[uint(slot)], uv, lod(slot));
+	}
+};
+
 public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, out RTHit hit, bool include_backfaces = false, bool distance_only = false,
-		float2 ray_cone = float2(0), bool skip_normal_map = false)
+		float2 ray_cone = float2(0), bool skip_normal_map = false, bool include_transparent = false)
 {
 	hit = {};
 	RayDesc ray = { origin, t_min, dir, t_max };
@@ -184,10 +210,10 @@ public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, o
 	{
 		// A force-opaque BLAS can commit a back face before we see a candidate.
 		// Retry only that case with candidate callbacks to find the next visible surface.
-		q.TraceRayInline(rt_tlas, ray_flags, 0xff, ray);
-		for (uint i = 0; i < 64 && q.Proceed(); ++i)
+		q.TraceRayInline(rt_tlas, ray_flags, include_transparent ? MASK_SURFACE | MASK_TRANSLUCENT : MASK_SURFACE, ray);
+		while (q.Proceed())
 		{
-			if (accept_candidate(q.CandidateInstanceID(), q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics(), dir, false, include_backfaces))
+			if (accept_candidate(q.CandidateInstanceID(), q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex(), q.CandidateTriangleBarycentrics(), dir, false, include_backfaces, include_transparent))
 				q.CommitNonOpaqueTriangleHit();
 		}
 		if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
@@ -209,7 +235,6 @@ public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, o
 
 	float3 w = tri.weights;
 	RTVertex a = tri.a, b = tri.b, c = tri.c;
-	RTMaterialTextures maps = rt_material_textures[s.material_id];
 	float2 uv = tri.uv(mat);
 	bool use_cone = ray_cone.x > 0;
 	float uv_lod = 0;
@@ -224,39 +249,24 @@ public bool trace_surface(float3 origin, float3 dir, float t_min, float t_max, o
 	float3 local = a.position + (b.position - a.position) * w.y + (c.position - a.position) * w.z;
 	hit.world_pos = mul_3x4(inst.model, float4(local, 1));
 	hit.geometric_normal = hit.is_front_face ? face : -face;
-	hit.is_unlit = (mat.flags & UNLIT) != 0;
+	hit.transparent = (mat.flags & TRANSPARENT) != 0;
+	hit.blend_mode = mat.blend_mode;
+	RTSurfaceMaps maps = { rt_material_textures[s.material_id], uv, uv_lod, use_cone };
 	float3 n = normalize_or(mul_normal_3x3(inst.normal, a.normal * w.x + b.normal * w.y + c.normal * w.z), face);
-	float4 tangent = a.tangent * w.x + b.tangent * w.y + c.tangent * w.z;
-	bool has_normal = !skip_normal_map && (mat.flags & HAS_NORMAL_MAP) != 0 && abs(tangent.w) > 0.0001;
-	float normal_lod = has_normal ? cone_mip(maps.normal, uv_lod, use_cone) : 2.0;
-	if (normal_lod < 2.0)
+	float3 t = 0, binormal = 0;
+	if (!skip_normal_map && (mat.flags & HAS_NORMAL_MAP) != 0)
 	{
-		float3 t = mul_normal_3x3(inst.model, tangent.xyz);
-		t = normalize_or(t - n * dot(t, n), 0);
-		float sign_b = (inst.flags & 1) != 0 ? -sign(tangent.w) : sign(tangent.w);
-		float2 xy = sample_map(maps.normal, uv, normal_lod).rg * 2 - 1;
-		float z = sqrt(saturate(1 - dot(xy, xy)));
-		n = normalize_or(n * z + (t * xy.x + cross(n, t) * sign_b * xy.y) * mat.normal_scale, n);
+		float4 tangent = a.tangent * w.x + b.tangent * w.y + c.tangent * w.z;
+		if (abs(tangent.w) > 0.0001 && maps.lod(SurfaceTexture::Normal) < 2.0)
+		{
+			t = mul_normal_3x3(inst.model, tangent.xyz);
+			binormal = cross(n, t) * ((inst.flags & 1) != 0 ? -tangent.w : tangent.w);
+		}
 	}
-	hit.shading_normal = !hit.is_front_face && (hit.is_double_sided || (mat.flags & CULL_FRONT) != 0) ? -n : n;
-	float3 base = mat.albedo.rgb * sample_map(maps.albedo, uv, cone_mip(maps.albedo, uv_lod, use_cone)).rgb;
+	float4 color = 1;
 	if ((mat.flags & VERTEX_COLOR) != 0)
-	{
-		bool srgb = (mat.flags & SRGB_VERTEX_COLOR) != 0;
-		base *= (srgb ? srgb_to_linear(a.color.rgb) : a.color.rgb) * w.x
-			+ (srgb ? srgb_to_linear(b.color.rgb) : b.color.rgb) * w.y
-			+ (srgb ? srgb_to_linear(c.color.rgb) : c.color.rgb) * w.z;
-	}
-	hit.base_color = saturate(base);
-	hit.roughness = saturate(mat.roughness * dot(mat.roughness_channel, sample_map(maps.roughness, uv, cone_mip(maps.roughness, uv_lod, use_cone))));
-	hit.metallic = saturate(mat.metallic * dot(mat.metallic_channel, sample_map(maps.metallic, uv, cone_mip(maps.metallic, uv_lod, use_cone))));
-	hit.specular = saturate(mat.specular);
-	hit.emissive = mat.emission;
-	if ((mat.flags & HAS_EMISSION_TEXTURE) != 0)
-	{
-		float3 emission = sample_map(maps.emissive, uv, cone_mip(maps.emissive, uv_lod, use_cone)).rgb;
-		hit.emissive = (mat.flags & EMISSION_OP_MULTIPLY) != 0 ? hit.emissive * emission : hit.emissive + emission;
-	}
-	hit.emissive *= mat.emission_energy;
+		color = linear_vertex_color(mat, a.color) * w.x + linear_vertex_color(mat, b.color) * w.y + linear_vertex_color(mat, c.color) * w.z;
+	float4 base = evaluate_base(mat, maps.sample_texture(SurfaceTexture::Albedo), color);
+	hit.surface = evaluate_surface(mat, maps, base, n, t, binormal, hit.is_front_face);
 	return true;
 }

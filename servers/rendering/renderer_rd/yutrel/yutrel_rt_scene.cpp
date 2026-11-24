@@ -58,6 +58,13 @@ RID YutrelRayTracingScene::get_scenario(const RenderDataRD &p_data) {
 
 namespace {
 
+// Shared with rt_scene.slang. Mixed meshes additionally filter individual candidates.
+enum RayMask : uint32_t {
+	MASK_SHADOW = 1,
+	MASK_SURFACE = 2,
+	MASK_TRANSLUCENT = 4,
+};
+
 struct SceneInstance {
 	const RenderGeometryInstanceBase *geometry;
 	bool shadows_only;
@@ -109,7 +116,7 @@ struct RTMaterials {
 		}
 		YutrelMaterialBridge::Material mat;
 		int id = -1;
-		if (p_bridge.get_material(p_material, mat) && !mat.transparent) {
+		if (p_bridge.get_material(p_material, mat)) {
 			id = material_records.size();
 			material_records.push_back(mat.data);
 			YutrelRTMaterialTextures slots = {};
@@ -334,14 +341,25 @@ bool YutrelRayTracingScene::update(const RenderDataRD &p_data, YutrelMaterialBri
 		record.first_surface = surface_records.size();
 		record.surface_count = mesh.surfaces.size();
 		bool any_hit = candidate.shadows_only;
-		bool included = false;
+		uint32_t mask = 0;
 		for (const MeshEntry::Surface &s : mesh.surfaces) {
 			const int id = frame_materials.resolve(p_bridge, YutrelMaterialBridge::get_surface_material(instance, rid, s.mesh_surface));
-			included |= id >= 0;
-			any_hit |= id < 0 || (frame_materials.material_records[id].flags & (YutrelMaterialData::ALPHA_SCISSOR | YutrelMaterialData::CULL_FRONT));
+			if (id < 0) {
+				any_hit = true;
+			} else {
+				const uint32_t flags = frame_materials.material_records[id].flags;
+				const bool transparent = (flags & YutrelMaterialData::TRANSPARENT) != 0;
+				any_hit |= transparent || (flags & (YutrelMaterialData::ALPHA_SCISSOR | YutrelMaterialData::CULL_FRONT));
+				if (!candidate.shadows_only) {
+					mask |= transparent ? MASK_TRANSLUCENT : MASK_SURFACE;
+				}
+				if (!transparent && candidate.casts_shadow) {
+					mask |= MASK_SHADOW;
+				}
+			}
 			surface_records.push_back({ 0, s.first_index, uint32_t(MAX(0, id)), uint32_t(id < 0) });
 		}
-		if (!included) {
+		if (!mask) {
 			surface_records.resize(record.first_surface);
 			continue;
 		}
@@ -358,7 +376,7 @@ bool YutrelRayTracingScene::update(const RenderDataRD &p_data, YutrelMaterialBri
 		build.transform = instance.transform;
 		build.blas = mesh.blas;
 		build.id = records.size();
-		build.mask = candidate.casts_shadow ? 0xff : 0xfe; // Shadow rays test bit 0. Surface rays see every mesh.
+		build.mask = mask;
 		build.hit_sbt_range = int64_t(1) << 32; // RD requires a nonempty range even for inline queries.
 		build.flags = RD::ACCELERATION_STRUCTURE_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT |
 				(any_hit ? RD::ACCELERATION_STRUCTURE_INSTANCE_FORCE_NO_OPAQUE_BIT : RD::ACCELERATION_STRUCTURE_INSTANCE_FORCE_OPAQUE_BIT);

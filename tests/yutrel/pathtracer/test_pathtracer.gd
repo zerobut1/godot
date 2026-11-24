@@ -32,7 +32,7 @@ func probe(image: Image, point: Vector3, radius := 2) -> Color:
 	return value / float((2 * radius + 1) ** 2)
 
 
-func add_mesh(mesh: Mesh, position: Vector3, mat: StandardMaterial3D) -> MeshInstance3D:
+func add_mesh(mesh: Mesh, position: Vector3, mat: Material) -> MeshInstance3D:
 	var item := MeshInstance3D.new()
 	item.mesh = mesh
 	item.material_override = mat
@@ -41,7 +41,7 @@ func add_mesh(mesh: Mesh, position: Vector3, mat: StandardMaterial3D) -> MeshIns
 	return item
 
 
-func quad(position: Vector3, size: Vector2, mat: StandardMaterial3D) -> MeshInstance3D:
+func quad(position: Vector3, size: Vector2, mat: Material) -> MeshInstance3D:
 	var mesh := QuadMesh.new()
 	mesh.size = size
 	return add_mesh(mesh, position, mat)
@@ -121,12 +121,13 @@ func cutout() -> void:
 	packed.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, mesh.get_mesh_arrays(), [], {}, Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES)
 	packed.surface_set_material(0, mat)
 	# Put a completely transparent surface in front of both the rim and hole of the same BLAS.
-	var overlay := material(Color.GREEN)
+	var overlay := material(Color(0, 1, 0, 0.0))
 	overlay.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	overlay.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var arrays := mesh.get_mesh_arrays()
 	var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	for i in positions.size():
-		positions[i].z += 0.1
+		positions[i].z -= 0.1 # The panel is rotated 180 degrees below.
 	arrays[Mesh.ARRAY_VERTEX] = positions
 	packed.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	packed.surface_set_material(1, overlay)
@@ -162,6 +163,100 @@ func cutout() -> void:
 	receiver.normal_texture = ImageTexture.create_from_image(normal)
 	var mapped := probe(await snapshot(4), Vector3(3, 1, -6))
 	check(mapped.g < hole.g * 0.25, "Tangent-space normal map changes directional illumination")
+	reset_geometry()
+
+
+func check_rgb(actual: Color, expected: Color, message: String, tolerance := 0.005) -> void:
+	var delta := (Vector3(actual.r, actual.g, actual.b) - Vector3(expected.r, expected.g, expected.b)).abs()
+	check(delta[delta.max_axis_index()] <= tolerance, "%s: got %s, expected %s" % [message, actual, expected])
+
+
+func native_layers() -> void:
+	var point := Vector3(0, 0, -4)
+	var size := Vector2(3, 3)
+	var back := YutrelMaterial.new()
+	back.shading_model = YutrelMaterial.SHADING_MODEL_UNLIT
+	back.base_color = Color.BLUE
+	quad(point + Vector3.FORWARD, size, back)
+	var layer := YutrelMaterial.new()
+	layer.base_color = Color(0, 0, 0, 0.5)
+	layer.emissive_color = Color.GREEN
+	layer.emissive_strength = 0.75
+	var pane := quad(point, size, layer)
+	check_rgb(probe(await snapshot(), point), Color.GREEN * 0.75, "Opaque ignores base alpha and preserves emission")
+	layer.alpha_mode = YutrelMaterial.ALPHA_MODE_MASK
+	layer.alpha_cutoff = 0.6
+	check_rgb(probe(await snapshot(), point), Color.BLUE, "Native alpha mask rejects the pane")
+	layer.alpha_cutoff = 0.4
+	check_rgb(probe(await snapshot(), point), Color.GREEN * 0.75, "Native alpha mask accepts the pane")
+	layer.alpha_mode = YutrelMaterial.ALPHA_MODE_BLEND
+	check_rgb(probe(await snapshot(48), point, 5), Color(0, 0.375, 0.5), "Half-alpha green emission over opaque blue", 0.035)
+	var front := YutrelMaterial.new()
+	front.shading_model = YutrelMaterial.SHADING_MODEL_UNLIT
+	front.base_color = Color(1, 0, 0, 0.5)
+	var top := quad(point + Vector3.BACK, size, front)
+	front.alpha_mode = YutrelMaterial.ALPHA_MODE_BLEND
+	check_rgb(probe(await snapshot(48), point, 5), Color(0.5, 0.1875, 0.25), "Stacked translucent layers", 0.035)
+	top.free()
+
+	# Default-lit emission exercises the reflected and straight-through branches.
+	back.base_color = Color(0.7, 0.7, 0.7)
+	var bg := back.base_color.srgb_to_linear()
+	layer.alpha_mode = YutrelMaterial.ALPHA_MODE_OPAQUE
+	for mode in [YutrelMaterial.BLEND_MODE_ADD, YutrelMaterial.BLEND_MODE_SUB, YutrelMaterial.BLEND_MODE_MUL]:
+		layer.blend_mode = mode
+		var expected := bg
+		match mode:
+			YutrelMaterial.BLEND_MODE_ADD:
+				expected.g += 0.375
+			YutrelMaterial.BLEND_MODE_SUB:
+				expected.g -= 0.375
+			YutrelMaterial.BLEND_MODE_MUL:
+				expected *= Color.WHITE.lerp(Color.GREEN * 0.75, 0.5)
+		check_rgb(probe(await snapshot(16), point, 5), expected, "Native path blend mode %d" % mode)
+	pane.free()
+	reset_geometry()
+
+
+func native_orm() -> void:
+	var texels := Image.create_empty(1, 1, false, Image.FORMAT_RGBA8)
+	texels.fill(Color(0.1, 0.65, 0.85))
+	var packed := ImageTexture.create_from_image(texels)
+	var legacy := ORMMaterial3D.new()
+	legacy.orm_texture = packed
+	legacy.ao_enabled = true
+	legacy.albedo_color = Color(0.7, 0.3, 0.1)
+	var point := Vector3(0, 0, -4)
+	var pane := quad(point, Vector2(3, 3), legacy)
+	var sun := DirectionalLight3D.new()
+	geometry.add_child(sun)
+	sun.look_at(Vector3(0.9, 0, -1))
+	var reference := probe(await snapshot(), point)
+	check(reference.r > 0.01, "Packed ORM reference receives directional light")
+	var native := YutrelMaterial.new()
+	native.base_color = legacy.albedo_color
+	native.metallic_texture = packed
+	check(native.metallic == 0.0, "Scripted texture assignment preserves a zero metallic factor")
+	native.metallic = 1.0
+	native.roughness_texture = packed
+	native.occlusion_texture = packed
+	pane.material_override = native
+	check_rgb(probe(await snapshot(), point), reference, "Native packed ORM matches the legacy bridge")
+	native.metallic_channel = YutrelMaterial.TEXTURE_CHANNEL_RED
+	var red_metallic := probe(await snapshot(), point)
+	check(absf(red_metallic.r - reference.r) > 0.01, "Metallic channel selection changes the BRDF")
+	native.roughness_channel = YutrelMaterial.TEXTURE_CHANNEL_RED
+	var red_roughness := probe(await snapshot(), point)
+	check(absf(red_roughness.r - red_metallic.r) > 0.01, "Roughness channel selection changes the BRDF")
+	var channels := texels.get_pixel(0, 0)
+	var scalar := StandardMaterial3D.new()
+	scalar.albedo_color = legacy.albedo_color
+	scalar.metallic = channels.r
+	scalar.roughness = channels.g
+	pane.material_override = scalar
+	check_rgb(red_metallic, probe(await snapshot(), point), "Red metallic and green roughness match scalar factors", 0.001)
+	scalar.roughness = channels.r
+	check_rgb(red_roughness, probe(await snapshot(), point), "Red roughness matches its scalar factor", 0.001)
 	reset_geometry()
 
 
@@ -287,6 +382,8 @@ func run() -> void:
 	view.add_child(geometry)
 	await index_and_color_formats()
 	await cutout()
+	await native_layers()
+	await native_orm()
 	await indirect()
 	await furnace()
 	print("PATHTRACER RUNTIME PASS" if failures == 0 else "PATHTRACER RUNTIME FAIL")

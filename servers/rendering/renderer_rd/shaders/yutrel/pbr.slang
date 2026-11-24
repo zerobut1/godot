@@ -1,6 +1,5 @@
 import brdf;
 import common;
-import gbuffer;
 
 public struct ShadingData
 {
@@ -15,7 +14,7 @@ public struct ShadingData
 	public float3 compensation;
 };
 
-public ShadingData prepare_shading(GBufferData surface, FrameData frame, float3 world, Texture2D<float2> dfg_lut, SamplerState dfg_sampler)
+public ShadingData prepare_shading(SurfaceData surface, FrameData frame, float3 world, Texture2D<float2> dfg_lut, SamplerState dfg_sampler)
 {
 	float3 N = surface.normal_ws;
 	float3 V = frame.camera_forward.w != 0.0 ? frame.camera_forward.xyz : normalize_or(frame.camera_position.xyz - world, N);

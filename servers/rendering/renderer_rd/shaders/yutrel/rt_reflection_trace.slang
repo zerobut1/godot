@@ -55,17 +55,17 @@ float3 incoming_radiance(float3 origin, float3 dir, float t_min, float r, float2
 	hit_dist = min(hit.t, 65504.0);
 	if (!hit.is_front_face && !hit.is_double_sided)
 		return 0;
-	if (hit.is_unlit)
-		return hit.emissive + hit.base_color;
-	float3 N = dot(hit.shading_normal, -dir) > MIN_N_DOT_V ? hit.shading_normal : hit.geometric_normal;
+	if (hit.surface.shading_model_id == SHADING_UNLIT)
+		return hit.surface.self_illumination();
+	float3 N = dot(hit.surface.normal_ws, -dir) > MIN_N_DOT_V ? hit.surface.normal_ws : hit.geometric_normal;
 	float NoV = max(dot(N, -dir), MIN_N_DOT_V);
-	float3 f0 = standard_f0(hit.base_color, hit.metallic, hit.specular);
+	float3 f0 = standard_f0(hit.surface.base_color, hit.surface.metallic, hit.surface.specular);
 	float3 fresnel = F_Schlick(f0, saturate(dot(f0, float3(16.5))), NoV);
-	float3 diffuse = hit.base_color * (1 - hit.metallic) * (1 - fresnel);
+	float3 diffuse = hit.surface.base_color * (1 - hit.surface.metallic) * (1 - fresnel);
 	float3 hit_origin = offset_ray_origin(hit.world_pos, hit.geometric_normal);
 	float hit_t_min = max(0.002, hit.t * 0.0005);
-	float roughness = max(MIN_PERCEPTUAL_ROUGHNESS, hit.roughness);
-	float3 radiance = hit.emissive;
+	float roughness = max(MIN_PERCEPTUAL_ROUGHNESS, hit.surface.roughness);
+	float3 radiance = hit.surface.emissive;
 	for (uint i = 0; i < params.light_count; ++i)
 	{
 		float3 L = lights[i].direction.xyz;
@@ -93,7 +93,7 @@ float3 incoming_radiance(float3 origin, float3 dir, float t_min, float r, float2
 	float visibility;
 	float3 probe_diffuse;
 	float3 indirect = indirect_environment(hit.world_pos, N, dir, sky, sh, volume, probes, visibility, probe_diffuse);
-	if (hit.metallic > 0.01)
+	if (hit.surface.metallic > 0.01)
 	{
 		float3 R = inverse_sky_rotation(reflect(dir, N), params.sin_rot, params.cos_rot);
 		float mip = params.max_mip * roughness * (2 - roughness);

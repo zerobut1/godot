@@ -26,7 +26,7 @@ float4 fragment_main(float4 position : SV_Position) : SV_Target0
 	float depth = scene_depth.Load(pixel);
 	if (depth <= 0.0)
 		return display.cascades != 0 ? float4(0, 0, 0, 1) : float4(1);
-	GBufferData surface = decode_gbuffer(gbuffer_a.Load(pixel), gbuffer_b.Load(pixel), gbuffer_c.Load(pixel));
+	SurfaceData surface = decode_gbuffer(gbuffer_a.Load(pixel), gbuffer_b.Load(pixel), gbuffer_c.Load(pixel));
 	float3 world = reconstruct_world_position(position.xy, depth, frame);
 	float distance = dot(frame.camera_position.xyz - world, frame.camera_forward.xyz);
 	CascadeSelection cascade = select_cascade(csm, distance);

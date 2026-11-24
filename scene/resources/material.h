@@ -79,7 +79,7 @@ public:
 	void set_next_pass(const Ref<Material> &p_pass);
 	Ref<Material> get_next_pass() const;
 
-	void set_render_priority(int p_priority);
+	virtual void set_render_priority(int p_priority);
 	int get_render_priority() const;
 
 	virtual RID get_rid() const override;

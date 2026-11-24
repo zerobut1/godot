@@ -37,7 +37,8 @@ public struct MaterialData
 	public float normal_scale;
 	public float alpha_scissor_threshold;
 	public uint flags;
-	public float2 padding;
+	public float ao_strength;
+	public uint blend_mode;
 };
 
 public static const uint INSTANCE_COMPRESSED = 1;
@@ -52,6 +53,30 @@ public static const uint SRGB_VERTEX_COLOR = 16;
 public static const uint EMISSION_OP_MULTIPLY = 32;
 public static const uint HAS_EMISSION_TEXTURE = 64;
 public static const uint UNLIT = 128;
+
+public static const uint CULL_FRONT = 256;
+public static const uint TRANSPARENT = 512;
+
+public static const uint SHADING_UNLIT = 0;
+public static const uint SHADING_STANDARD = 1;
+
+public struct SurfaceData
+{
+	public float3 base_color;
+	public float3 normal_ws;
+	public float roughness;
+	public float metallic;
+	public float specular;
+	public float material_ao;
+	public float3 emissive;
+	public float alpha;
+	public uint shading_model_id;
+
+	public float3 self_illumination()
+	{
+		return shading_model_id == SHADING_UNLIT ? emissive + base_color : emissive;
+	}
+};
 
 public float3 mul_3x4(float4 rows[3], float4 v)
 {

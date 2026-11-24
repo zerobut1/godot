@@ -65,6 +65,16 @@ func blending() -> void:
 	red.material_override.render_priority = 1
 	close_rgb(await center(), green_mix.lerp(Color.RED, 0.35), "Priority lets a farther surface draw last without depth writes")
 	red.material_override.render_priority = 0
+	var legacy := red.material_override
+	var native := YutrelMaterial.new()
+	native.shading_model = YutrelMaterial.SHADING_MODEL_UNLIT
+	native.alpha_mode = YutrelMaterial.ALPHA_MODE_BLEND
+	native.base_color = Color(1, 0, 0, 0.35)
+	red.material_override = native
+	close_rgb(await center(), red_mix.lerp(Color.GREEN, 0.5), "Native blend follows depth at default priority")
+	native.render_priority = 1
+	close_rgb(await center(), green_mix.lerp(Color.RED, 0.35), "Native priority edit takes effect on the next draw")
+	red.material_override = legacy
 	green.mesh.center_offset.z = 1
 	var tied := await center()
 	for i in 3:
@@ -125,6 +135,19 @@ func lighting() -> void:
 	sun.hide()
 	var indirect := await center()
 	check(indirect.r > 0.1, "Transparent-only scene receives IBL")
+	var native := YutrelMaterial.new()
+	native.alpha_mode = YutrelMaterial.ALPHA_MODE_BLEND
+	native.base_color = mat.albedo_color
+	native.cull_mode = YutrelMaterial.CULL_MODE_DISABLED
+	receiver.material_override = native
+	close_rgb(await center(), indirect, "Native forward material matches legacy indirect light")
+	var ao := Image.create_empty(1, 1, false, Image.FORMAT_RGBA8)
+	ao.fill(Color(0, 1, 1))
+	native.occlusion_texture = ImageTexture.create_from_image(ao)
+	close_rgb(await center(), Color.BLACK, "Native AO uses the packed red channel")
+	native.occlusion_strength = 0.0
+	close_rgb(await center(), indirect, "Zero AO strength restores indirect light")
+	receiver.material_override = mat
 	view.transparent_bg = true
 	var no_sky := await center()
 	close_rgb(no_sky, indirect, "Forward IBL with opaque lighting and skybox both disabled")
@@ -184,6 +207,29 @@ func lighting() -> void:
 	var no_cast := await snapshot()
 	close_rgb(no_cast.get_pixelv(left), no_cast.get_pixelv(right), "Transparent caster leaves opaque receiver lit")
 	check(no_cast.get_pixelv(left).r > 0.1, "Opaque receiver receives light")
+
+	# Both surfaces share an instance mask. The shadow query must filter each surface.
+	var caster_mesh := caster.mesh as QuadMesh
+	var caster_material := caster.material_override
+	var mixed := ArrayMesh.new()
+	var arrays := caster_mesh.get_mesh_arrays()
+	mixed.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mixed.surface_set_material(0, native)
+	var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	for i in positions.size():
+		positions[i].x += caster_mesh.size.x
+	arrays[Mesh.ARRAY_VERTEX] = positions
+	mixed.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mixed.surface_set_material(1, mat)
+	caster.material_override = null
+	caster.mesh = mixed
+	sky.shadow_mode = YutrelEnvironment.SHADOW_MODE_RAY_TRACED
+	var rt_shadow := await snapshot()
+	check(rt_shadow.get_pixelv(left).r > 0.1 and rt_shadow.get_pixelv(right).r < 0.01,
+			"RT shadow skips the translucent half of a mixed mesh and blocks on its opaque half")
+	sky.shadow_mode = YutrelEnvironment.SHADOW_MODE_CSM
+	caster.mesh = caster_mesh
+	caster.material_override = caster_material
 
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.albedo_color.a = 0.35

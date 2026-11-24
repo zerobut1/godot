@@ -47,6 +47,7 @@ struct YutrelMaterialData {
 		HAS_EMISSION_TEXTURE = 1 << 6,
 		UNLIT = 1 << 7,
 		CULL_FRONT = 1 << 8,
+		TRANSPARENT = 1 << 9,
 	};
 
 	float albedo[4] = { 1, 1, 1, 1 };
@@ -62,7 +63,8 @@ struct YutrelMaterialData {
 	float normal_scale = 1;
 	float alpha_scissor_threshold = 0.5;
 	uint32_t flags = 0;
-	float padding[2] = {};
+	float ao_strength = 1.0f;
+	uint32_t blend_mode = 0;
 };
 
 static_assert(sizeof(YutrelMaterialData) == 128);
@@ -75,6 +77,8 @@ static_assert(offsetof(YutrelMaterialData, ao_channel) == 80);
 static_assert(offsetof(YutrelMaterialData, roughness) == 96);
 static_assert(offsetof(YutrelMaterialData, alpha_scissor_threshold) == 112);
 static_assert(offsetof(YutrelMaterialData, flags) == 116);
+static_assert(offsetof(YutrelMaterialData, ao_strength) == 120);
+static_assert(offsetof(YutrelMaterialData, blend_mode) == 124);
 
 class YutrelMaterialBridge {
 public:

@@ -1,19 +1,5 @@
 import common;
 
-public static const uint SHADING_UNLIT = 0;
-public static const uint SHADING_STANDARD = 1;
-
-public struct GBufferData
-{
-	public float3 base_color;
-	public float3 normal_ws;
-	public float roughness;
-	public float metallic;
-	public float specular;
-	public float material_ao;
-	public uint shading_model_id;
-};
-
 public struct GBufferTargets
 {
 	public float4 scene_color : SV_Target0;
@@ -22,19 +8,20 @@ public struct GBufferTargets
 	public float4 gbuffer_c : SV_Target3;
 };
 
-public GBufferTargets encode_gbuffer(GBufferData surface, float3 emissive)
+public GBufferTargets encode_gbuffer(SurfaceData surface)
 {
 	GBufferTargets result;
-	result.scene_color = float4(clamp(sanitize_finite(emissive), 0.0, 65504.0), 1.0);
+	result.scene_color = float4(clamp(sanitize_finite(surface.self_illumination()), 0.0, 65504.0), 1.0);
 	result.gbuffer_a = float4(surface.base_color, float(surface.shading_model_id) / 255.0);
 	result.gbuffer_b = float4(surface.normal_ws * 0.5 + 0.5, 0.0);
 	result.gbuffer_c = float4(surface.roughness, surface.metallic, surface.specular, surface.material_ao);
 	return result;
 }
 
-public GBufferData decode_gbuffer(float4 a, float4 b, float4 c)
+public SurfaceData decode_gbuffer(float4 a, float4 b, float4 c)
 {
-	GBufferData surface;
+	SurfaceData surface = {};
+	surface.alpha = 1.0;
 	surface.base_color = a.rgb;
 	surface.normal_ws = normalize_or(b.rgb * 2.0 - 1.0, float3(0.0, 0.0, 1.0));
 	surface.roughness = c.r;
