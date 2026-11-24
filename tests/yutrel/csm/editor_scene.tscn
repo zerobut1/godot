@@ -11,4 +11,5 @@ directional_shadow_split_3 = 0.58
 directional_shadow_blend_splits = true
 
 [node name="Environment" type="YutrelEnvironment" parent="."]
+shadow_mode = 0
 shadow_resolution = 1024

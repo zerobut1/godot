@@ -67,6 +67,7 @@ func run() -> void:
 	view.add_child(camera)
 	camera.make_current()
 	var environment := YutrelEnvironment.new()
+	environment.shadow_mode = YutrelEnvironment.SHADOW_MODE_CSM
 	environment.shadow_resolution = 1024
 	environment.sky_intensity = 0
 	environment.tone_mapping = YutrelEnvironment.TONE_MAPPING_NONE

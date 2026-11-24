@@ -84,7 +84,7 @@ struct YutrelEnvironmentSettings {
 	RID sky_texture_rid;
 	float sky_intensity = 1.0f;
 	float sky_rotation_radians = 0.0f;
-	ShadowMode shadow_mode = ShadowMode::CSM;
+	ShadowMode shadow_mode = ShadowMode::RAY_TRACED;
 	int shadow_resolution = 2048;
 	bool shadow_rt_half_resolution = true;
 	int shadow_rt_samples = 1;

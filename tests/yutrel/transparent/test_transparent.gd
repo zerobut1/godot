@@ -266,6 +266,7 @@ func run() -> void:
 	view.add_child(camera)
 	camera.make_current()
 	sky = YutrelEnvironment.new()
+	sky.shadow_mode = YutrelEnvironment.SHADOW_MODE_CSM
 	sky.shadow_resolution = 1024
 	sky.sky_intensity = 0
 	sky.tone_mapping = YutrelEnvironment.TONE_MAPPING_NONE

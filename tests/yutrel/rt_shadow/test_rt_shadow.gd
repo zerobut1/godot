@@ -231,7 +231,7 @@ func run() -> void:
 	sun = rig.get_node("Sun")
 	environment = scene.get_node("Environment")
 	var defaults := YutrelEnvironment.new()
-	check(defaults.shadow_mode == YutrelEnvironment.SHADOW_MODE_CSM and defaults.shadow_rt_half_resolution and defaults.shadow_rt_samples == 1, "CSM and RT environment defaults")
+	check(defaults.shadow_mode == YutrelEnvironment.SHADOW_MODE_RAY_TRACED and defaults.shadow_rt_half_resolution and defaults.shadow_rt_samples == 1, "RT shadow environment defaults")
 	defaults.free()
 	environment.shadow_rt_samples = -5
 	check(environment.shadow_rt_samples == 1, "Minimum sample count")

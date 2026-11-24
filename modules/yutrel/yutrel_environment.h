@@ -147,7 +147,7 @@ private:
 	UpscalerMode upscaler_mode = UPSCALER_MODE_OFF;
 	UpscalerQuality upscaler_quality = UPSCALER_QUALITY_NATIVE_AA;
 	float upscaler_sharpness = 0.2f;
-	ShadowMode shadow_mode = SHADOW_MODE_CSM;
+	ShadowMode shadow_mode = SHADOW_MODE_RAY_TRACED;
 	int shadow_resolution = 2048;
 	bool shadow_rt_half_resolution = true;
 	int shadow_rt_samples = 1;
