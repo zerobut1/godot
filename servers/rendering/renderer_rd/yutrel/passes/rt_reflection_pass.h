@@ -48,11 +48,11 @@ class RTReflectionPass {
 	RID fallback_reflection;
 
 public:
-	// Trace samples G-buffer B/C, depth, source and prefiltered sky, and three DDGI atlases.
-	static constexpr uint32_t RT_SAMPLED_IMAGES = 8;
+	// Trace samples G-buffer B/C, depth, the quad offset, two sky maps and three DDGI atlases.
+	static constexpr uint32_t RT_SAMPLED_IMAGES = 9;
 
 	struct History {
-		RID raw_reflection, reprojected, variance, average, filtered;
+		RID quad_offset, raw_reflection, reprojected, variance, average, filtered;
 		RID history[2], guide[2], stats[2];
 		RID full_reflection[2], mirror_guide[2];
 		RID prev_frame_buffer;

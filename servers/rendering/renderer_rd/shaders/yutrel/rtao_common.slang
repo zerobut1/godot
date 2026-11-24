@@ -13,7 +13,7 @@ public float rtao_inv_sigma(float3 world, float3 camera_position)
 
 public float rtao_surface_weight(float3 world, float3 N, float3 tap_world, float3 tap_N, float inv_sigma)
 {
-	return exp(-abs(dot(tap_world - world, N)) * inv_sigma) * pow(saturate(dot(tap_N, N)), 64);
+	return exp(-abs(dot(tap_world - world, N)) * inv_sigma) * pow(saturate(dot(tap_N, N)), 16);
 }
 
 // Choose a one-sided derivative along each axis, avoiding depth discontinuities.

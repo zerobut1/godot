@@ -89,6 +89,10 @@ void DDGIPass::History::clear() {
 	config_version = 0;
 	rays = 0;
 	counts = Vector3i();
+#ifdef TOOLS_ENABLED
+	converged_frames = 0;
+	last_state_hash = 0;
+#endif
 }
 
 bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector<DirectionalLightItem> &p_lights, const LocalLightPass &p_local,
@@ -232,8 +236,19 @@ bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector
 	h.config_version = v.config_version;
 	h.shader_version = version;
 #ifdef TOOLS_ENABLED
-	if (Engine::get_singleton()->is_editor_hint() && DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {
-		RenderingServerDefault::redraw_request();
+	if (Engine::get_singleton()->is_editor_hint()) {
+		uint64_t state_hash = hash_djb2_one_64(p_local.get_hash(), p_scene.get_scene_hash());
+		state_hash = rt_hash_bytes(state_hash, &p_sky, sizeof(p_sky));
+		state_hash = hash_djb2_one_64(p_ibl.get_source_cubemap().get_id(), state_hash);
+		state_hash = hash_djb2_one_64(p_ibl.get_bake_version(), state_hash);
+		state_hash = rt_hash_bytes(state_hash, lights.ptr(), p_lights.size() * sizeof(DirectionalLightParams));
+		state_hash = hash_djb2_one_64(v.config_version, state_hash);
+		state_hash = hash_djb2_one_64(version, state_hash);
+		h.converged_frames = !gpu.reset_history && h.last_state_hash == state_hash ? MIN(h.converged_frames + 1, 128u) : 0;
+		h.last_state_hash = state_hash;
+		if (h.converged_frames < 128 && DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {
+			RenderingServerDefault::redraw_request();
+		}
 	}
 #endif
 	return true;

@@ -37,6 +37,7 @@
 
 #ifdef TOOLS_ENABLED
 #include "core/config/engine.h"
+#include "servers/display/display_server.h"
 #include "servers/rendering/rendering_server_default.h"
 #endif
 
@@ -202,7 +203,7 @@ bool RTAOPass::render(History &h, const YutrelPipelineTargets &p_targets, RID p_
 		const bool stationary = reuse && memcmp(p_frame.view_projection, h.prev_frame.view_projection, sizeof(p_frame.view_projection)) == 0 &&
 				h.last_scene_hash == p_scene.get_scene_hash() && h.last_intensity == p_environment.rtao_intensity;
 		h.converged_frames = stationary ? MIN(h.converged_frames + 1, 16u) : 0;
-		if (h.converged_frames < 16) {
+		if (h.converged_frames < 16 && DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {
 			RenderingServerDefault::redraw_request();
 		}
 		h.last_scene_hash = p_scene.get_scene_hash();

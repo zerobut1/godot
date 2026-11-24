@@ -66,7 +66,7 @@ RTReflectionPass::~RTReflectionPass() {
 }
 
 void RTReflectionPass::History::clear() {
-	for (RID *rid : { &raw_reflection, &reprojected, &variance, &average, &filtered, &history[0], &history[1], &guide[0], &guide[1], &stats[0], &stats[1],
+	for (RID *rid : { &quad_offset, &raw_reflection, &reprojected, &variance, &average, &filtered, &history[0], &history[1], &guide[0], &guide[1], &stats[0], &stats[1],
 				 &full_reflection[0], &full_reflection[1], &mirror_guide[0], &mirror_guide[1], &prev_frame_buffer, &ray_list, &indirect_buffer }) {
 		if (rid->is_valid()) {
 			RD::get_singleton()->free_rid(*rid);
@@ -91,13 +91,14 @@ bool RTReflectionPass::History::ensure_size(Size2i p_full_size, Size2i p_work_si
 	ray_list = rd->storage_buffer_create(list_bytes);
 	indirect_buffer = rd->storage_buffer_create(3 * sizeof(uint32_t), {}, RD::STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT);
 	constexpr RD::DataFormat rgba = RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
+	quad_offset = create_image(p_work_size, RD::DATA_FORMAT_R8_UINT, "Yutrel RT Reflection Quad Offset");
 	raw_reflection = create_image(p_work_size, rgba, "Yutrel RT Reflection Raw");
 	reprojected = create_image(p_work_size, rgba, "Yutrel RT Reflection Reprojected");
 	filtered = create_image(p_work_size, rgba, "Yutrel RT Reflection Prefiltered");
 	average = create_image((p_work_size + Size2i(7, 7)) / 8, rgba, "Yutrel RT Reflection Tile Average");
 	variance = create_image(p_work_size, RD::DATA_FORMAT_R16_SFLOAT, "Yutrel RT Reflection Variance");
 	prev_frame_buffer = rd->uniform_buffer_create(sizeof(prev_frame));
-	bool valid = raw_reflection.is_valid() && reprojected.is_valid() && filtered.is_valid() && average.is_valid() && variance.is_valid() && prev_frame_buffer.is_valid() && ray_list.is_valid() && indirect_buffer.is_valid();
+	bool valid = quad_offset.is_valid() && raw_reflection.is_valid() && reprojected.is_valid() && filtered.is_valid() && average.is_valid() && variance.is_valid() && prev_frame_buffer.is_valid() && ray_list.is_valid() && indirect_buffer.is_valid();
 	for (int i = 0; i < 2; i++) {
 		history[i] = create_image(p_work_size, rgba, "Yutrel RT Reflection History");
 		guide[i] = create_image(p_work_size, rgba, "Yutrel RT Reflection Surface");
@@ -163,7 +164,8 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 	const Uniform roughness(RD::UNIFORM_TYPE_TEXTURE, 5, p_targets.gbuffer_c);
 	const RID classify_set = sets->get_cache(classify.shader.get_shader(), 0, frame, depth, raw,
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, p_targets.gbuffer_a), roughness,
-			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 6, h.ray_list), Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 7, h.indirect_buffer));
+			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 6, h.ray_list), Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 7, h.indirect_buffer),
+			Uniform(RD::UNIFORM_TYPE_IMAGE, 8, h.quad_offset));
 	const RID scene_set = p_scene.get_uniform_set(trace.shader.get_shader());
 	const RID linear_clamp = RendererRD::MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
 	const RID trace_set = sets->get_cache(trace.shader.get_shader(), 0, frame, normal, depth, raw,
@@ -177,14 +179,15 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 12, p_ddgi.irradiance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, p_ddgi.distance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_ddgi.probe_data),
-			Uniform(RD::UNIFORM_TYPE_SAMPLER, 15, linear_clamp), p_local.light_uniform());
+			Uniform(RD::UNIFORM_TYPE_SAMPLER, 15, linear_clamp), p_local.light_uniform(), Uniform(RD::UNIFORM_TYPE_TEXTURE, 20, h.quad_offset));
 	const Uniform prev_frame(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 1, h.prev_frame_buffer);
 	const RID reproject_set = sets->get_cache(reproject.shader.get_shader(), 0, frame, prev_frame,
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, p_targets.gbuffer_b), Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, p_targets.scene_depth),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, h.raw_reflection), Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, h.history[prev]),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, h.guide[prev]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, h.stats[prev]),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 8, p_targets.gbuffer_c), Uniform(RD::UNIFORM_TYPE_IMAGE, 9, h.guide[curr]),
-			Uniform(RD::UNIFORM_TYPE_IMAGE, 10, h.reprojected), Uniform(RD::UNIFORM_TYPE_IMAGE, 11, h.variance), Uniform(RD::UNIFORM_TYPE_IMAGE, 12, h.average));
+			Uniform(RD::UNIFORM_TYPE_IMAGE, 10, h.reprojected), Uniform(RD::UNIFORM_TYPE_IMAGE, 11, h.variance), Uniform(RD::UNIFORM_TYPE_IMAGE, 12, h.average),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, h.quad_offset));
 	const RID prefilter_set = sets->get_cache(prefilter.shader.get_shader(), 0, Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, h.raw_reflection),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 1, h.guide[curr]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, h.variance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, h.average), Uniform(RD::UNIFORM_TYPE_IMAGE, 4, h.filtered), Uniform(RD::UNIFORM_TYPE_SAMPLER, 5, linear_clamp));
@@ -225,8 +228,8 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 	const bool stationary = reuse && memcmp(p_frame.view_projection, h.prev_frame.view_projection, sizeof(p_frame.view_projection)) == 0;
 	struct ReprojectParams {
 		Size2i full_size;
-		uint32_t scale, index, has_history, stationary;
-	} reproject_params = { full_size, pixel_scale, frame_index, reuse, stationary };
+		uint32_t scale, has_history, stationary;
+	} reproject_params = { full_size, pixel_scale, reuse, stationary };
 	struct ResolveParams {
 		Size2i size;
 		float dt_scale;
@@ -235,7 +238,7 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 		float max_roughness;
 		uint32_t index, has_history, stationary, scene_changed;
 	} upsample_params = { p_environment.rt_reflection_max_roughness, frame_index, reuse, stationary, !same_scene };
-	static_assert(sizeof(ClassifyParams) == 28 && sizeof(TraceParams) == 48 && sizeof(ReprojectParams) == 24 && sizeof(ResolveParams) == 12 && sizeof(UpsampleParams) == 20);
+	static_assert(sizeof(ClassifyParams) == 28 && sizeof(TraceParams) == 48 && sizeof(ReprojectParams) == 20 && sizeof(ResolveParams) == 12 && sizeof(UpsampleParams) == 20);
 
 	// RD tracks indirect and shader reads separately. Keep the count in ray_list[0]
 	// so trace can read it while the command processor consumes the indirect buffer.

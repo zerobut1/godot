@@ -32,6 +32,7 @@ struct DirectionalLight
 [[vk::binding(13, 0)]] Texture2DArray<float2> distance_atlas;
 [[vk::binding(14, 0)]] Texture2DArray<float4> probe_data;
 [[vk::binding(15, 0)]] SamplerState linear_clamp;
+[[vk::binding(20, 0)]] [[vk::image_format("r8ui")]] Texture2D<uint> quad_offset;
 
 struct TraceParams
 {
@@ -131,7 +132,7 @@ void compute_main(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
 		return;
 	uint packed = ray_list[index + 1];
 	uint2 texel = uint2(packed & 0xffffu, packed >> 16);
-	int2 pixel = reflection_pixel(int2(texel), params.pixel_scale, params.frame_index, params.full_size) + int2(frame.viewport_origin);
+	int2 pixel = reflection_sample_pixel(int2(texel), params.pixel_scale, quad_offset.Load(int3(texel, 0)), params.full_size) + int2(frame.viewport_origin);
 	int3 coord = int3(pixel, 0);
 	float depth = scene_depth.Load(coord);
 	float r = gbuffer_c.Load(coord).r;

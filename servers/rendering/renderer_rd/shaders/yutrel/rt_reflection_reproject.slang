@@ -14,17 +14,18 @@ import rt_reflection_common;
 [[vk::binding(10)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> reprojected;
 [[vk::binding(11)]] [[vk::image_format("r16f")]] RWTexture2D<float> variance;
 [[vk::binding(12)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> average;
+[[vk::binding(13)]] [[vk::image_format("r8ui")]] Texture2D<uint> quad_offset;
 
 struct ReprojectParams
 {
 	int2 full_size;
-	uint scale, index, has_history, stationary;
+	uint scale, has_history, stationary;
 };
 [[vk::push_constant]] ConstantBuffer<ReprojectParams> params;
 
 float2 history_texel(float3 world)
 {
-	return reflection_texel(previous_pixel(world, prev_frame), params.scale, reflection_phase(params.index - 1, params.scale), params.full_size);
+	return reflection_texel(previous_pixel(world, prev_frame), params.scale, float2(0.0), params.full_size);
 }
 
 float4 nearest_guide(float2 p, int2 size)
@@ -38,8 +39,7 @@ void recover_history(int2 texel, int2 size, float3 world, float distance, float3
 {
 	history = float4(0, 0, 0, 1);
 	var = 1;
-	// A stationary glossy work texel integrates the four phases of the same
-	// footprint. Repeated bilinear reprojection here diffuses a sharp lobe.
+	// Reuse the exact stationary sample to avoid diffusing a sharp lobe.
 	float2 p = float2(texel);
 	if (params.stationary == 0)
 	{
@@ -93,7 +93,7 @@ void compute_main(uint3 tid : SV_DispatchThreadID, uint lane : SV_GroupIndex, ui
 	float4 weighted = 0;
 	if (all(int2(tid.xy) < size))
 	{
-		int2 p = reflection_pixel(tid.xy, params.scale, params.index, params.full_size) + int2(frame.viewport_origin);
+		int2 p = reflection_sample_pixel(tid.xy, params.scale, quad_offset.Load(int3(tid.xy, 0)), params.full_size) + int2(frame.viewport_origin);
 		int3 coord = int3(p, 0);
 		float4 raw = raw_reflection.Load(int3(tid.xy, 0));
 		float4 g = 0;

@@ -54,7 +54,7 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 				float cosine = saturate(dot(tap_N, N));
 				if (cosine > 0.9 && plane_distance < 1.33)
 					result.g = max(result.g, sample.g);
-				float weight = exp(-plane_distance) * pow(cosine, 64);
+				float weight = exp(-plane_distance) * pow(cosine, 16);
 				float2 tap_sum = float2(sample.r, 1) * weight;
 				if (x == 0 || y == 0)
 					axial += tap_sum;

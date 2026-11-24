@@ -32,6 +32,12 @@ public int2 reflection_pixel(int2 texel, uint scale, uint index, int2 full_size)
 	return min(texel * int(scale) + reflection_phase(index, scale), full_size - 1);
 }
 
+public int2 reflection_sample_pixel(int2 texel, uint scale, uint packed, int2 full_size)
+{
+	int2 offset = int2(packed & 1u, (packed >> 1) & 1u);
+	return min(texel * int(scale) + offset, full_size - 1);
+}
+
 // Invert the jittered lattice, including the one-pixel interval at an odd edge.
 public float2 reflection_texel(float2 pixel, uint scale, float2 phase, int2 size)
 {

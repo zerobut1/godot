@@ -27,6 +27,20 @@ float4 load_mirror_guide(int2 p, int2 size)
 	return all(p >= 0) && all(p < size) ? prev_mirror_guide.Load(int3(p, 0)) : float4(0);
 }
 
+void consider_fallback(int3 tc, float4 g, float z, float r, inout float best_score, inout int3 best_tap)
+{
+	float dz = abs(z - g.z);
+	if (g.z > 0 && dz < max(0.15, z * 0.25))
+	{
+		float score = dz / max(0.02, z * 0.04) + 12.0 * abs(r - g.w);
+		if (score < best_score)
+		{
+			best_score = score;
+			best_tap = tc;
+		}
+	}
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void compute_main(uint3 tid : SV_DispatchThreadID)
@@ -102,20 +116,21 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 	// An interpolated mirror estimate can be displayed, but only an actual ray
 	// or its validated reprojection may seed the next frame's exact history.
 	mirror_guide[local] = 0;
-	// The converged stationary glossy signal represents the quad center. Using
-	// the current ray phase to place it would shift that signal every frame.
-	float2 phase = r >= MIRROR_ROUGHNESS && params.stationary != 0 && params.index >= 4 ? float2(0.5) : float2(reflection_phase(params.index, 2));
+	float2 phase = r >= MIRROR_ROUGHNESS ? float2(0.0) : float2(reflection_phase(params.index, 2));
 	float2 p = reflection_texel(local, 2, phase, size);
 	int2 base = int2(floor(p));
 	float2 f = frac(p);
 	float3 sum = 0;
 	float weights = 0;
+	float best_score = 1e20;
+	int3 best_tap = int3(-1);
 	for (int y = 0; y < 2; ++y)
 		for (int x = 0; x < 2; ++x)
 		{
 			int3 tc = int3(clamp(base + int2(x, y), 0, (size - 1) / 2), 0);
 			float4 g = work_guide.Load(tc);
-			if (g.z <= 0 || abs(r - g.w) > 0.15)
+			consider_fallback(tc, g, z, r, best_score, best_tap);
+			if (g.z <= 0 || abs(r - g.w) > 0.25 || (r >= MIRROR_ROUGHNESS && g.w < MIRROR_ROUGHNESS))
 				continue;
 			float w = pow(saturate(dot(N, unpack_octahedral_normal(g.xy))), normal_sigma(r));
 			w *= exp(-abs(z - g.z) / max(0.02, z * 0.04) - 32 * abs(r - g.w));
@@ -123,5 +138,15 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 			sum += w * resolved.Load(tc).rgb;
 			weights += w;
 		}
-	reflection[local] = weights > 1e-5 ? float4(sum / weights, 1) : float4(0);
+	if (weights > 1e-5)
+	{
+		reflection[local] = float4(sum / weights, 1);
+		return;
+	}
+	if (any(quad < base) || any(quad > base + 1))
+	{
+		int3 qc = int3(quad, 0);
+		consider_fallback(qc, work_guide.Load(qc), z, r, best_score, best_tap);
+	}
+	reflection[local] = best_tap.x >= 0 ? float4(resolved.Load(best_tap).rgb, 1) : float4(0);
 }

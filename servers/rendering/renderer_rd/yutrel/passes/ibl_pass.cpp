@@ -224,6 +224,7 @@ bool IBLPass::prepare_environment(const YutrelEnvironmentSettings &p_environment
 	rd->draw_command_end_label();
 	if (baked) {
 		baked_key = key;
+		++bake_version;
 		print_verbose("Yutrel: baked IBL.");
 	}
 	return baked;

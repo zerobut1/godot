@@ -85,6 +85,7 @@ class IBLPass {
 	DDGIBindings inactive_ddgi;
 	BakeKey baked_key;
 	bool baked = false;
+	uint64_t bake_version = 0;
 
 	bool _initialize_resources();
 	bool _bake(const BakeKey &p_key);
@@ -95,6 +96,7 @@ public:
 	void prepare();
 	bool prepare_environment(const YutrelEnvironmentSettings &p_environment);
 	RID get_source_cubemap() const { return baked ? source.texture : RID(); }
+	uint64_t get_bake_version() const { return bake_version; }
 	RID get_prefilter_cubemap() const { return filtered.texture; }
 	RID get_sh_buffer() const { return sh_buffer; }
 	static constexpr float get_prefilter_max_mip() { return PREFILTER_MIPS - 1.0f; }

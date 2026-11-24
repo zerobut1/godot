@@ -24,7 +24,7 @@ struct TemporalParams
 
 bool compatible(float3 world, float3 N, float threshold, int2 pixel, float depth, float4 normal, FrameData tap_frame)
 {
-	if (depth <= 0 || dot(N, normalize_or(normal.rgb * 2 - 1, 0)) <= 0.9)
+	if (depth <= 0 || dot(N, normalize_or(normal.rgb * 2 - 1, 0)) <= 0.75)
 		return false;
 	float3 tap_world = reconstruct_world_position(pixel + 0.5, depth, tap_frame);
 	return abs(dot(world - tap_world, N)) < threshold;
@@ -101,10 +101,13 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 						sum2 += v * v;
 						taps++;
 					}
-				float mean = sum / taps;
-				float extent = 2 * sqrt(max(0, sum2 / taps - mean * mean));
-				// A single noisy neighborhood should only gently shorten a stale trail.
-				history.x = lerp(history.x, clamp(history.x, mean - extent, mean + extent), 0.25);
+				float clamp_weight = saturate((taps - 4.0) / 5.0) * 0.25;
+				if (clamp_weight > 0.0)
+				{
+					float mean = sum / taps;
+					float extent = 2 * sqrt(max(0, sum2 / taps - mean * mean));
+					history.x = lerp(history.x, clamp(history.x, mean - extent, mean + extent), clamp_weight);
+				}
 			}
 			result = float2(lerp(history.x, raw, alpha), count);
 		}

@@ -61,6 +61,10 @@ public:
 		uint64_t config_version = 0;
 		uint64_t shader_version = 0;
 		RandomPCG rotations;
+#ifdef TOOLS_ENABLED
+		uint32_t converged_frames = 0;
+		uint64_t last_state_hash = 0;
+#endif
 
 		void clear();
 		~History() { clear(); }
