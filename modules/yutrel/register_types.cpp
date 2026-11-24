@@ -40,11 +40,25 @@
 
 #include "core/object/class_db.h"
 
+#include "modules/modules_enabled.gen.h"
+
+#ifdef MODULE_GLTF_ENABLED
+#include "gltf_document_extension_yutrel.h"
+
+#include "modules/gltf/gltf_document.h"
+#endif
+
 void initialize_yutrel_module(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
 		GDREGISTER_CLASS(YutrelMaterial);
 		GDREGISTER_CLASS(YutrelEnvironment);
 		GDREGISTER_CLASS(YutrelDDGIVolume);
+#ifdef MODULE_GLTF_ENABLED
+		GDREGISTER_CLASS(GLTFDocumentExtensionYutrel);
+		Ref<GLTFDocumentExtensionYutrel> extension;
+		extension.instantiate();
+		GLTFDocument::register_gltf_document_extension(extension);
+#endif
 	}
 #ifdef TOOLS_ENABLED
 	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
