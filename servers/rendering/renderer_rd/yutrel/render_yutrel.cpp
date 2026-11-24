@@ -224,7 +224,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	RD *rd = RD::get_singleton();
 	YutrelViewportSettings settings = YutrelViewportSettings::get(targets.render_target, runtime_path_tracing ? DebugViewMode::PATH_TRACER : DebugViewMode::FINAL);
 	if (settings.debug_view == DebugViewMode::PATH_TRACER && !PathTracerPass::is_supported()) {
-		WARN_PRINT_ONCE("Yutrel Path Tracer requires ray queries and non-uniform indexing of 513 sampled images per stage. Falling back to Final.");
+		WARN_PRINT_ONCE("Yutrel Path Tracer requires ray queries and non-uniform indexing of 2049 sampled images per stage. Falling back to Final.");
 		settings.debug_view = DebugViewMode::FINAL;
 	}
 

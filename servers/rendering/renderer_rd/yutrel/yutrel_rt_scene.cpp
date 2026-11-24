@@ -122,7 +122,7 @@ struct RTMaterials {
 					texture_ids.insert(texture, table.size());
 					table.push_back(texture);
 				} else {
-					WARN_PRINT_ONCE("Yutrel RT texture table exceeded 512 entries. Using white for excess textures.");
+					WARN_PRINT_ONCE("Yutrel RT texture table exceeded 2048 entries. Using white for excess textures.");
 				}
 			}
 			texture_records.push_back(slots);

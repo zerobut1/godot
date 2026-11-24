@@ -39,7 +39,7 @@ struct RTMaterialTextures
 [[vk::binding(5, YUTREL_RT_SCENE_SET)]] StructuredBuffer<MaterialData> rt_materials;
 [[vk::binding(6, YUTREL_RT_SCENE_SET)]] StructuredBuffer<RTMaterialTextures> rt_material_textures;
 [[vk::binding(7, YUTREL_RT_SCENE_SET)]] SamplerState rt_sampler;
-[[vk::binding(8, YUTREL_RT_SCENE_SET)]] Texture2D<float4> rt_textures[512];
+[[vk::binding(8, YUTREL_RT_SCENE_SET)]] Texture2D<float4> rt_textures[2048];
 
 public struct RTHit
 {

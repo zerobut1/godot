@@ -102,7 +102,7 @@ class YutrelRayTracingScene {
 	void _free_sets();
 
 public:
-	static constexpr uint32_t MAX_TEXTURES = 512;
+	static constexpr uint32_t MAX_TEXTURES = 2048;
 
 	static bool is_supported(uint32_t p_pass_textures);
 	static RID get_scenario(const RenderDataRD &p_data);
