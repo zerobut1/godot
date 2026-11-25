@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 from pathlib import Path
 
 FIXTURE = Path(__file__).resolve().parent
-SHADERS = ("base_pass.slang", "skybox.slang", "transparent_rt.slang")
+SHADERS = ("depth_prepass.slang", "base_pass.slang", "skybox.slang", "transparent_rt.slang")
 RELOAD_DEPENDENCIES = {shader: [shader] for shader in SHADERS}
 
 if __name__ == "__main__":

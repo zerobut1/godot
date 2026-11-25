@@ -93,6 +93,18 @@ public float4 mul_4x4(float4 rows[4], float4 v)
 	return float4(dot(rows[0], v), dot(rows[1], v), dot(rows[2], v), dot(rows[3], v));
 }
 
+// The depth prepass and the equal-depth GBuffer pass must project identically.
+public float4 clip_position_from_local(float3 local_pos, InstanceData instance, FrameData frame)
+{
+	float3 world = mul_3x4(instance.model, float4(local_pos, 1.0));
+	return mul_4x4(frame.view_projection, float4(world, 1.0));
+}
+
+public float scissor_vertex_alpha(float vertex_alpha, InstanceData instance, MaterialData material)
+{
+	return material.albedo.a * (((instance.flags & INSTANCE_HAS_COLOR) != 0 && (material.flags & VERTEX_COLOR) != 0) ? vertex_alpha : 1.0);
+}
+
 // Backwards, normalized UV displacement. Both clips exclude sample jitter.
 public float2 motion_vector(float4 curr, float4 prev)
 {

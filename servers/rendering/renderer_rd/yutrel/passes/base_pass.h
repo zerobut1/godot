@@ -35,15 +35,44 @@
 namespace RendererSceneRenderImplementation {
 
 class BasePass : public YutrelGeometryBatch {
-	void _record(const YutrelPipelineTargets &p_targets, RID p_uniform_set, const Color &p_clear_color, RenderingServerTypes::RenderInfo *p_render_info);
+	struct FrontToBack {
+		bool operator()(const DrawItem &a, const DrawItem &b) const {
+			if (a.material.alpha_scissor != b.material.alpha_scissor) {
+				return !a.material.alpha_scissor;
+			}
+			if (a.distance != b.distance) {
+				return a.distance < b.distance;
+			}
+			return a.instance_id < b.instance_id;
+		}
+	};
+
+	struct ByPipelineAndMaterial {
+		bool operator()(const DrawItem &a, const DrawItem &b) const {
+			if (a.pipeline != b.pipeline) {
+				return a.pipeline.get_id() < b.pipeline.get_id();
+			}
+			if (a.material.id != b.material.id) {
+				return a.material.id < b.material.id;
+			}
+			return a.instance_id < b.instance_id;
+		}
+	};
+
+	YutrelShader depth_shader;
+	CullPipelines depth_pipelines;
+
+	RID _get_frame_set(RID p_shader, RID p_frame_buffer) const;
+	bool _render_depth(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_material_sampler);
 
 public:
 	BasePass() : YutrelGeometryBatch(BASE) {}
+	bool prepare();
 	void add(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_material_bridge,
 			YutrelGeometryBatch &p_transparent, const Vector3 &p_camera_position, const Vector3 &p_camera_forward, const Transform3D &p_prev_transform) {
 		add_geometry(p_instance, p_camera_mirrored, p_material_bridge, &p_transparent, p_camera_position, p_camera_forward, &p_prev_transform);
 	}
-	bool render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const Color &p_clear_color, RenderingServerTypes::RenderInfo *p_render_info = nullptr);
+	bool render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_material_sampler, const Color &p_clear_color, RenderingServerTypes::RenderInfo *p_render_info = nullptr);
 };
 
 } // namespace RendererSceneRenderImplementation

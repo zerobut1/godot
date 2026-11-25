@@ -172,7 +172,7 @@ bool CSMShadowPass::render(const RenderDataRD &p_data, LocalVector<DirectionalLi
 					uint32_t draw_id;
 				} draw;
 				memcpy(draw.vp, item.shadow.view_projection[i], sizeof(draw.vp));
-				draw_range(list, begin, draw_ends[layer], draw, p_data.render_info);
+				draw_range(list, begin, draw_ends[layer], material_sets, draw, p_data.render_info);
 			}
 			rd->draw_list_end();
 			begin = draw_ends[layer];

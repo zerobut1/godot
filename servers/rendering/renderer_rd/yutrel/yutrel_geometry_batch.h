@@ -47,6 +47,7 @@ protected:
 	struct BatchMaterial {
 		int id = -1;
 		bool transparent = false;
+		bool alpha_scissor = false;
 		int32_t priority = 0;
 		YutrelMaterialBridge::BlendMode blend = YutrelMaterialBridge::BLEND_MIX;
 	};
@@ -65,7 +66,8 @@ protected:
 	};
 
 	YutrelShader shader;
-	using PipelineTable = PipelineCacheRD[YutrelMaterialBridge::BLEND_MODE_COUNT][2][2];
+	using CullPipelines = PipelineCacheRD[2][2]; // [mirrored][double_sided]
+	using PipelineTable = CullPipelines[YutrelMaterialBridge::BLEND_MODE_COUNT];
 	PipelineTable pipelines;
 	YutrelStorageBuffer instance_buffer;
 	YutrelStorageBuffer material_buffer;
@@ -73,25 +75,29 @@ protected:
 	LocalVector<YutrelInstanceData> instances;
 	LocalVector<YutrelMaterialData> materials;
 	LocalVector<RID> material_sets;
+	LocalVector<RID> material_albedos; // Depth-only descriptors use white for solid surfaces.
 	HashMap<RID, BatchMaterial> material_indices;
 
 	explicit YutrelGeometryBatch(Pass p_pass) : pass(p_pass) {}
 	bool upload_geometry();
 	bool prepare_shader(YutrelShader &r_shader, PipelineTable &r_pipelines, const char *p_path);
+	static void setup_cull_pipelines(CullPipelines &r_pipelines, RID p_shader, const RD::PipelineDepthStencilState &p_depth, const RD::PipelineColorBlendState &p_blend);
+	static void resolve_draw(DrawItem &r_item, RD::FramebufferFormatID p_format, PipelineCacheRD &p_pipeline, bool p_specialize);
 	void resolve_draws(RD::FramebufferFormatID p_format, PipelineTable &p_pipelines);
 	BatchMaterial resolve_material(RID p_material, YutrelMaterialBridge &p_bridge, YutrelGeometryBatch *p_transparent);
 	void add_geometry(const RenderGeometryInstanceBase &p_instance, bool p_camera_mirrored, YutrelMaterialBridge &p_bridge,
 			YutrelGeometryBatch *p_transparent = nullptr, const Vector3 &p_camera_position = {}, const Vector3 &p_camera_forward = {}, const Transform3D *p_prev_transform = nullptr);
-	bool bind_draw(RD::DrawListID p_list, const DrawItem &p_item, RID &r_material_set);
+	bool bind_draw(RD::DrawListID p_list, const DrawItem &p_item, RID p_material_set, RID &r_bound_pipeline, RID &r_bound_material_set);
 
 	template <typename T>
-	void draw_range(RD::DrawListID p_list, uint32_t p_begin, uint32_t p_end, T &r_constants, RenderingServerTypes::RenderInfo *p_render_info = nullptr) {
+	void draw_range(RD::DrawListID p_list, uint32_t p_begin, uint32_t p_end, const LocalVector<RID> &p_material_sets, T &r_constants, RenderingServerTypes::RenderInfo *p_render_info = nullptr) {
 		RD *rd = RD::get_singleton();
+		RID bound_pipeline;
 		RID bound_material_set;
 		int *info = p_render_info ? p_render_info->info[pass == SHADOW ? RSE::VIEWPORT_RENDER_INFO_TYPE_SHADOW : RSE::VIEWPORT_RENDER_INFO_TYPE_VISIBLE] : nullptr;
 		for (uint32_t i = p_begin; i < p_end; i++) {
 			const DrawItem &item = draws[i];
-			if (bind_draw(p_list, item, bound_material_set)) {
+			if (bind_draw(p_list, item, p_material_sets[item.material.id], bound_pipeline, bound_material_set)) {
 				r_constants.draw_id = item.instance_id;
 				rd->draw_list_set_push_constant(p_list, &r_constants, sizeof(T));
 				rd->draw_list_draw(p_list, item.index_array.is_valid());

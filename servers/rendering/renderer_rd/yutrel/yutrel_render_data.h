@@ -122,6 +122,7 @@ struct YutrelPipelineTargets {
 	RID upscaled_color;
 	RID output_depth;
 	RID output_color;
+	RID depth_framebuffer;
 	RID base_framebuffer;
 	RID lighting_framebuffer;
 	RID output_framebuffer;

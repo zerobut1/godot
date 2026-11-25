@@ -147,7 +147,7 @@ void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame
 		rd->draw_list_bind_uniform_set(list, scene_set, 2);
 	}
 	rd->draw_list_bind_uniform_set(list, csm_set, 3);
-	draw_range(list, 0, draws.size(), draw, p_render_info);
+	draw_range(list, 0, draws.size(), material_sets, draw, p_render_info);
 	rd->draw_list_end();
 }
 

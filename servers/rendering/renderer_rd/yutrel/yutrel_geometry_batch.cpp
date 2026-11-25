@@ -53,8 +53,8 @@ bool YutrelGeometryBatch::prepare_shader(YutrelShader &r_shader, PipelineTable &
 	RD::PipelineColorBlendState blend = RD::PipelineColorBlendState::create_disabled(attachment_count[pass]);
 	RD::PipelineDepthStencilState depth;
 	depth.enable_depth_test = true;
-	depth.enable_depth_write = pass != TRANSPARENT;
-	depth.depth_compare_operator = RD::COMPARE_OP_GREATER_OR_EQUAL;
+	depth.enable_depth_write = pass == SHADOW;
+	depth.depth_compare_operator = pass == BASE ? RD::COMPARE_OP_EQUAL : RD::COMPARE_OP_GREATER_OR_EQUAL;
 	using ShaderData = RendererRD::MaterialStorage::ShaderData;
 	static constexpr ShaderData::BlendMode modes[YutrelMaterialBridge::BLEND_MODE_COUNT] = {
 		ShaderData::BLEND_MODE_MIX, ShaderData::BLEND_MODE_ADD, ShaderData::BLEND_MODE_SUB, ShaderData::BLEND_MODE_MUL
@@ -71,17 +71,21 @@ bool YutrelGeometryBatch::prepare_shader(YutrelShader &r_shader, PipelineTable &
 			reactive.src_color_blend_factor = reactive.dst_color_blend_factor = RD::BLEND_FACTOR_ONE;
 			reactive.src_alpha_blend_factor = reactive.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
 		}
-		for (int mirrored = 0; mirrored < 2; mirrored++) {
-			for (int double_sided = 0; double_sided < 2; double_sided++) {
-				RD::PipelineRasterizationState raster;
-				// Godot's projection flips Y for Vulkan's positive-height viewport.
-				raster.front_face = mirrored ? RD::POLYGON_FRONT_FACE_COUNTER_CLOCKWISE : RD::POLYGON_FRONT_FACE_CLOCKWISE;
-				raster.cull_mode = double_sided ? RD::POLYGON_CULL_DISABLED : RD::POLYGON_CULL_BACK;
-				r_pipelines[mode][mirrored][double_sided].setup(r_shader.get_shader(), RD::RENDER_PRIMITIVE_TRIANGLES, raster, {}, depth, blend);
-			}
-		}
+		setup_cull_pipelines(r_pipelines[mode], r_shader.get_shader(), depth, blend);
 	}
 	return r_shader.get_shader().is_valid();
+}
+
+void YutrelGeometryBatch::setup_cull_pipelines(CullPipelines &r_pipelines, RID p_shader, const RD::PipelineDepthStencilState &p_depth, const RD::PipelineColorBlendState &p_blend) {
+	for (int mirrored = 0; mirrored < 2; mirrored++) {
+		for (int double_sided = 0; double_sided < 2; double_sided++) {
+			RD::PipelineRasterizationState raster;
+			// Godot's projection flips Y for Vulkan's positive-height viewport.
+			raster.front_face = mirrored ? RD::POLYGON_FRONT_FACE_COUNTER_CLOCKWISE : RD::POLYGON_FRONT_FACE_CLOCKWISE;
+			raster.cull_mode = double_sided ? RD::POLYGON_CULL_DISABLED : RD::POLYGON_CULL_BACK;
+			r_pipelines[mirrored][double_sided].setup(p_shader, RD::RENDER_PRIMITIVE_TRIANGLES, raster, {}, p_depth, p_blend);
+		}
+	}
 }
 
 void YutrelGeometryBatch::clear() {
@@ -89,6 +93,7 @@ void YutrelGeometryBatch::clear() {
 	instances.clear();
 	materials.clear();
 	material_sets.clear();
+	material_albedos.clear();
 	material_indices.clear();
 }
 
@@ -103,17 +108,21 @@ YutrelGeometryBatch::BatchMaterial YutrelGeometryBatch::resolve_material(RID p_m
 		YutrelGeometryBatch &batch = material.transparent ? *p_transparent : *this;
 		entry.id = batch.materials.size();
 		entry.transparent = material.transparent;
+		entry.alpha_scissor = (material.data.flags & YutrelMaterialData::ALPHA_SCISSOR) != 0;
 		entry.priority = material.render_priority;
 		entry.blend = material.blend_mode;
 		batch.materials.push_back(material.data);
 		if (pass == SHADOW) {
 			// Opaque specialization never samples; all opaque materials share one descriptor.
-			const RID albedo = (material.data.flags & YutrelMaterialData::ALPHA_SCISSOR) ? material.textures[YutrelMaterialBridge::ALBEDO] : p_bridge.get_white_texture();
+			const RID albedo = entry.alpha_scissor ? material.textures[YutrelMaterialBridge::ALBEDO] : p_bridge.get_white_texture();
 			const RID sampler = p_bridge.get_material_sampler();
 			batch.material_sets.push_back(UniformSetCacheRD::get_singleton()->get_cache(shader.get_shader(), 1,
 					RD::Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, albedo), RD::Uniform(RD::UNIFORM_TYPE_SAMPLER, 1, sampler)));
 		} else {
 			batch.material_sets.push_back(p_bridge.get_uniform_set(batch.shader.get_shader(), material));
+			if (batch.pass == BASE) {
+				batch.material_albedos.push_back(entry.alpha_scissor ? material.textures[YutrelMaterialBridge::ALBEDO] : p_bridge.get_white_texture());
+			}
 		}
 	}
 	material_indices.insert(p_material, entry);
@@ -178,7 +187,7 @@ void YutrelGeometryBatch::add_geometry(const RenderGeometryInstanceBase &p_insta
 		item.instance_id = batch.instances.size();
 		item.primitive_count = vertices_drawn / 3;
 		item.material = entry;
-		if (entry.transparent) {
+		if (pass != SHADOW) {
 			const Vector3 world_center = p_instance.transform.xform(meshes->mesh_surface_get_aabb(surface).get_center());
 			item.distance = (p_camera_position - world_center).dot(p_camera_forward);
 		}
@@ -205,29 +214,34 @@ bool YutrelGeometryBatch::upload_geometry() {
 	return instance_buffer.upload(instances, "Yutrel Instance SSBO") && material_buffer.upload(materials, "Yutrel Material SSBO");
 }
 
-void YutrelGeometryBatch::resolve_draws(RD::FramebufferFormatID p_format, PipelineTable &p_pipelines) {
+void YutrelGeometryBatch::resolve_draw(DrawItem &r_item, RD::FramebufferFormatID p_format, PipelineCacheRD &p_pipeline, bool p_specialize) {
 	auto *meshes = RendererRD::MeshStorage::get_singleton();
-	for (uint32_t i = 0; i < draws.size(); i++) {
-		DrawItem &item = draws[i];
-		auto &pipeline = p_pipelines[item.material.blend][item.mirrored][item.double_sided];
-		RD::VertexFormatID vertex_format;
-		meshes->mesh_surface_get_vertex_arrays_and_format(item.surface, pipeline.get_vertex_input_mask(), false, false, item.vertex_array, vertex_format);
-		item.index_array = meshes->mesh_surface_get_index_array(item.surface, 0);
-		const bool specialize = item.material.blend == YutrelMaterialBridge::BLEND_MUL || (pass == SHADOW && (materials[item.material.id].flags & YutrelMaterialData::ALPHA_SCISSOR));
-		item.pipeline = pipeline.get_render_pipeline(vertex_format, p_format, false, 0, specialize);
+	RD::VertexFormatID vertex_format;
+	meshes->mesh_surface_get_vertex_arrays_and_format(r_item.surface, p_pipeline.get_vertex_input_mask(), false, false, r_item.vertex_array, vertex_format);
+	r_item.index_array = meshes->mesh_surface_get_index_array(r_item.surface, 0);
+	r_item.pipeline = p_pipeline.get_render_pipeline(vertex_format, p_format, false, 0, p_specialize);
+}
+
+void YutrelGeometryBatch::resolve_draws(RD::FramebufferFormatID p_format, PipelineTable &p_pipelines) {
+	for (DrawItem &item : draws) {
+		const auto mode = pass == TRANSPARENT ? item.material.blend : YutrelMaterialBridge::BLEND_MIX;
+		const bool specialize = pass == TRANSPARENT ? mode == YutrelMaterialBridge::BLEND_MUL : item.material.alpha_scissor;
+		resolve_draw(item, p_format, p_pipelines[mode][item.mirrored][item.double_sided], specialize);
 	}
 }
 
-bool YutrelGeometryBatch::bind_draw(RD::DrawListID p_list, const DrawItem &p_item, RID &r_material_set) {
-	const RID set = material_sets[p_item.material.id];
-	if (p_item.pipeline.is_null() || p_item.vertex_array.is_null() || set.is_null()) {
+bool YutrelGeometryBatch::bind_draw(RD::DrawListID p_list, const DrawItem &p_item, RID p_material_set, RID &r_bound_pipeline, RID &r_bound_material_set) {
+	if (p_item.pipeline.is_null() || p_item.vertex_array.is_null() || p_material_set.is_null()) {
 		return false;
 	}
 	RD *rd = RD::get_singleton();
-	rd->draw_list_bind_render_pipeline(p_list, p_item.pipeline);
-	if (set != r_material_set && (pass != SHADOW || r_material_set.is_null() || (materials[p_item.material.id].flags & YutrelMaterialData::ALPHA_SCISSOR))) {
-		rd->draw_list_bind_uniform_set(p_list, set, 1);
-		r_material_set = set;
+	if (p_item.pipeline != r_bound_pipeline) {
+		rd->draw_list_bind_render_pipeline(p_list, p_item.pipeline);
+		r_bound_pipeline = p_item.pipeline;
+	}
+	if (p_material_set != r_bound_material_set && (pass != SHADOW || r_bound_material_set.is_null() || p_item.material.alpha_scissor)) {
+		rd->draw_list_bind_uniform_set(p_list, p_material_set, 1);
+		r_bound_material_set = p_material_set;
 	}
 	rd->draw_list_bind_vertex_array(p_list, p_item.vertex_array);
 	if (p_item.index_array.is_valid()) {

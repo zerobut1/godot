@@ -52,6 +52,21 @@ func blending() -> void:
 	var wall := panel(-6, Color.BLUE, false)
 	var red := panel(-7, Color(1, 0, 0, 0.35), true)
 	close_rgb(await center(), Color.BLUE, "Opaque wall occludes transparent geometry")
+	var cutout := panel(-4, Color.GREEN, false)
+	var mask := Image.create_empty(16, 16, false, Image.FORMAT_RGBA8)
+	mask.fill(Color.WHITE)
+	mask.fill_rect(Rect2i(5, 5, 6, 6), Color.TRANSPARENT)
+	cutout.material_override.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	cutout.material_override.albedo_texture = ImageTexture.create_from_image(mask)
+	red.position.z = -5
+	var masked := await snapshot()
+	var solid_pixel := Vector2i(camera.unproject_position(Vector3(1.5, 0, -4)))
+	close_rgb(masked.get_pixelv(solid_pixel), Color.GREEN, "Cutout depth occludes the transparent panel")
+	close_rgb(masked.get_pixelv(view.size / 2), Color.BLUE.lerp(Color.RED, 0.35), "Cutout hole exposes both layers behind it")
+	cutout.position.z = wall.position.z
+	red.position.z = -7
+	close_rgb(await center(), Color.BLUE, "Coplanar cutout hole preserves the opaque GBuffer")
+	cutout.free()
 	red.position.z = -6
 	var red_mix := Color.BLUE.lerp(Color.RED, 0.35)
 	close_rgb(await center(), red_mix, "Coplanar decal passes Reverse-Z depth test")

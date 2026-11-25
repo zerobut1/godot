@@ -261,11 +261,12 @@ bool RenderYutrel::_prepare_targets(const RenderDataRD &p_data, bool p_enable_up
 			false);
 	ERR_FAIL_COND_V(RD::get_singleton()->texture_get_format(r_targets.scene_color).format != RD::DATA_FORMAT_R16G16B16A16_SFLOAT, false);
 	auto *framebuffers = FramebufferCacheRD::get_singleton();
+	r_targets.depth_framebuffer = framebuffers->get_cache(r_targets.scene_depth);
 	r_targets.base_framebuffer = framebuffers->get_cache(r_targets.scene_color, r_targets.gbuffer_a, r_targets.gbuffer_b, r_targets.gbuffer_c, r_targets.velocity, r_targets.scene_depth);
 	r_targets.lighting_framebuffer = framebuffers->get_cache(r_targets.scene_color);
 	r_targets.output_framebuffer = framebuffers->get_cache(r_targets.output_color);
 	r_targets.output_linear = textures->render_target_is_using_hdr(r_targets.render_target);
-	return r_targets.base_framebuffer.is_valid() && r_targets.lighting_framebuffer.is_valid() && r_targets.output_framebuffer.is_valid();
+	return r_targets.depth_framebuffer.is_valid() && r_targets.base_framebuffer.is_valid() && r_targets.lighting_framebuffer.is_valid() && r_targets.output_framebuffer.is_valid();
 }
 
 RID RenderYutrel::_render_buffers_get_velocity_texture(Ref<RenderSceneBuffersRD> p_buffers) {
@@ -420,9 +421,8 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 #ifdef TOOLS_ENABLED
 		if (Engine::get_singleton()->is_editor_hint()) {
 			ERR_FAIL_COND(!base_pass.prepare() || !transparent_pass.prepare());
-			RENDER_TIMESTAMP("Yutrel BasePass");
 			_collect_geometry(*p_render_data);
-			ERR_FAIL_COND(!base_pass.render(targets, frame_buffer, p_default_color.srgb_to_linear(), p_render_data->render_info));
+			ERR_FAIL_COND(!base_pass.render(targets, frame_buffer, material_bridge.get_material_sampler(), p_default_color.srgb_to_linear(), p_render_data->render_info));
 		}
 #endif
 		if (custom->path_tracer_accum.is_null()) {
@@ -474,8 +474,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		RENDER_TIMESTAMP("Yutrel CSM Shadows");
 		ERR_FAIL_COND(!csm_shadow_pass.prepare() || !csm_shadow_pass.render(*p_render_data, lights, environment.shadow_resolution, material_bridge));
 	}
-	RENDER_TIMESTAMP("Yutrel BasePass");
-	if (!base_pass.render(targets, frame_buffer, p_default_color.srgb_to_linear(), p_render_data->render_info)) {
+	if (!base_pass.render(targets, frame_buffer, material_bridge.get_material_sampler(), p_default_color.srgb_to_linear(), p_render_data->render_info)) {
 		return;
 	}
 

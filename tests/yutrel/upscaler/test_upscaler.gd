@@ -144,7 +144,7 @@ func run() -> void:
 		check_image(image, quality)
 		digest.update(image.get_data())
 		var stages := await profile()
-		for stage in ["Yutrel Temporal Upscale", "Yutrel RTAO Temporal", "Yutrel RT Reflection Reproject", "Yutrel RT Shadow Temporal", "Yutrel Transparent"]:
+		for stage in ["Yutrel Depth Prepass", "Yutrel BasePass", "Yutrel Temporal Upscale", "Yutrel RTAO Temporal", "Yutrel RT Reflection Reproject", "Yutrel RT Shadow Temporal", "Yutrel Transparent"]:
 			check(stages.has(stage), "%s ran at quality %d" % [stage, quality])
 	sky.upscaler_mode = 0
 	check(not (await profile()).has("Yutrel Temporal Upscale"), "Live Off releases temporal history")
