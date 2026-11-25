@@ -17,6 +17,7 @@ struct ResolveParams
 [[vk::push_constant]] ConstantBuffer<ResolveParams> params;
 
 groupshared float4 neighborhood[16][16];
+static const float G[5] = { 1.0, 0.886920437, 0.618783392, 0.339595526, 0.146606962 };
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -49,14 +50,18 @@ void compute_main(uint3 tid : SV_DispatchThreadID, uint3 local : SV_GroupThreadI
 	float weights = 0;
 	// Separable Gaussian weights exp(-3*i*i/25) over the FidelityFX 9x9 support.
 	for (int y = -4; y <= 4; ++y)
+	{
+		float wy = G[abs(y)];
+		int row = int(local.y) + 4 + y;
 		for (int x = -4; x <= 4; ++x)
 		{
-			float4 tap = neighborhood[int(local.y) + 4 + y][int(local.x) + 4 + x];
-			float w = tap.a * exp(-0.12 * (x * x + y * y));
+			float4 tap = neighborhood[row][int(local.x) + 4 + x];
+			float w = tap.a * wy * G[abs(x)];
 			sum += tap.rgb * w;
 			sum_sq += tap.rgb * tap.rgb * w;
 			weights += w;
 		}
+	}
 	float3 tile_average = sample_tile_average(average, linear_clamp, tid.xy, params.size);
 	float3 mean = sum / weights;
 	float3 extent = 1.4 * (sqrt(abs(sum_sq / weights - mean * mean)) + length(mean - tile_average));

@@ -73,7 +73,6 @@ struct TemporalParams {
 	ShadowGrid grid;
 	uint32_t has_history;
 	float max_history, dt_scale;
-	uint32_t write_surfaces;
 };
 struct FilterParams {
 	ShadowGrid grid;
@@ -85,7 +84,7 @@ struct UpsampleParams {
 	ShadowGrid grid;
 	float opacity;
 };
-static_assert(sizeof(TraceParams) == 44 && sizeof(TemporalParams) == 32 && sizeof(FilterParams) == 28 && sizeof(UpsampleParams) == 20);
+static_assert(sizeof(TraceParams) == 44 && sizeof(TemporalParams) == 28 && sizeof(FilterParams) == 28 && sizeof(UpsampleParams) == 20);
 
 } // namespace
 
@@ -96,7 +95,6 @@ void RTShadowPass::LightHistory::clear() {
 
 void RTShadowPass::History::invalidate() {
 	has_history = false;
-	wrote_surfaces = false;
 	for (KeyValue<RID, LightHistory> &entry : lights) {
 		entry.value.clear();
 	}
@@ -105,7 +103,7 @@ void RTShadowPass::History::invalidate() {
 
 void RTShadowPass::History::clear() {
 	invalidate();
-	for (RID *rid : { &raw_shadow, &denoise_temp, &filtered_shadow, &prev_depth[0], &prev_depth[1], &prev_normal[0], &prev_normal[1], &prev_frame_buffer }) {
+	for (RID *rid : { &raw_shadow, &denoise_temp, &filtered_shadow }) {
 		free_resource(*rid);
 	}
 	full_size = Size2i();
@@ -121,21 +119,12 @@ bool RTShadowPass::History::ensure_size(Size2i p_full_size, bool p_half_resoluti
 		full_size = p_full_size;
 		half_resolution = p_half_resolution;
 	}
-	if (p_soft && prev_frame_buffer.is_null()) {
+	if (p_soft && denoise_temp.is_null()) {
 		denoise_temp = create_image(size, RD::DATA_FORMAT_R16G16_SFLOAT, "Yutrel RT Shadow Filter Temp");
 		if (p_half_resolution) {
 			filtered_shadow = create_image(size, RD::DATA_FORMAT_R16_SFLOAT, "Yutrel RT Shadow Filtered");
 		}
-		prev_frame_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(prev_frame));
-		if (prev_frame_buffer.is_valid()) {
-			RD::get_singleton()->set_resource_name(prev_frame_buffer, "Yutrel RT Shadow PrevFrame UBO");
-		}
-		bool valid = denoise_temp.is_valid() && prev_frame_buffer.is_valid() && (!p_half_resolution || filtered_shadow.is_valid());
-		for (int i = 0; i < 2; ++i) {
-			prev_depth[i] = create_image(size, RD::DATA_FORMAT_R32_SFLOAT, "Yutrel RT Shadow Depth");
-			prev_normal[i] = create_image(size, RD::DATA_FORMAT_R16G16B16A16_UNORM, "Yutrel RT Shadow Normal");
-			valid = valid && prev_depth[i].is_valid() && prev_normal[i].is_valid();
-		}
+		bool valid = denoise_temp.is_valid() && (!p_half_resolution || filtered_shadow.is_valid());
 		if (!valid) {
 			clear();
 			return false;
@@ -144,7 +133,7 @@ bool RTShadowPass::History::ensure_size(Size2i p_full_size, bool p_half_resoluti
 	return true;
 }
 
-void RTShadowPass::History::finish_frame(const YutrelFrameData &p_frame) {
+void RTShadowPass::History::finish_frame() {
 	// A debug view can stop after the first light. Only histories paired with
 	// this frame's depth and normal images can be reprojected next frame.
 	for (auto it = lights.begin(); it;) {
@@ -157,23 +146,19 @@ void RTShadowPass::History::finish_frame(const YutrelFrameData &p_frame) {
 			lights.remove(current);
 		}
 	}
-	has_history = wrote_surfaces;
-	if (wrote_surfaces) {
-		prev_frame = p_frame;
-		slot = 1 - slot;
-		wrote_surfaces = false;
-	}
+	has_history = true;
+	slot = 1 - slot;
 }
 
-bool RTShadowPass::render(History &h, const DirectionalLightItem &p_light, const YutrelPipelineTargets &p_targets,
+bool RTShadowPass::render(History &h, const RTGeometryPass::View &p_geo, const DirectionalLightItem &p_light, const YutrelPipelineTargets &p_targets,
 		RID p_frame_buffer, const YutrelFrameData &p_frame, const YutrelEnvironmentSettings &p_environment,
 		YutrelRayTracingScene &p_scene, double p_time_step) {
 	const bool half_res = p_environment.shadow_rt_half_resolution;
 	const bool is_soft = p_light.params.direction[3] > 0;
 	const bool resolve = half_res || !is_soft;
 	const Size2i full_size = p_targets.region.size;
-	const Size2i size = work_size(full_size, half_res);
-	const ShadowGrid grid = { full_size, half_res ? 2u : 1u, 0 };
+	const Size2i size = p_geo.work_size;
+	const ShadowGrid grid = { full_size, p_geo.pixel_scale, 0 };
 	ERR_FAIL_COND_V(!trace.prepare("rt_shadow_trace.slang"), false);
 	ERR_FAIL_COND_V(resolve && !upsample.prepare("rt_shadow_upsample.slang"), false);
 	ERR_FAIL_COND_V(is_soft && (!temporal.prepare("rt_shadow_temporal.slang") || !denoise.prepare("rt_shadow_denoise.slang")), false);
@@ -185,13 +170,14 @@ bool RTShadowPass::render(History &h, const DirectionalLightItem &p_light, const
 	const Uniform normal(RD::UNIFORM_TYPE_TEXTURE, 1, p_targets.gbuffer_b);
 	const Uniform depth(RD::UNIFORM_TYPE_TEXTURE, 2, p_targets.scene_depth);
 	const RID scene_set = p_scene.get_uniform_set(trace.shader.get_shader());
-	const RID trace_set = sets->get_cache(trace.shader.get_shader(), 0, frame, normal, depth, Uniform(RD::UNIFORM_TYPE_IMAGE, 3, h.raw_shadow));
+	const RID trace_set = sets->get_cache(trace.shader.get_shader(), 0, frame,
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 1, p_geo.curr_surface), depth, Uniform(RD::UNIFORM_TYPE_IMAGE, 3, h.raw_shadow));
 	ERR_FAIL_COND_V(scene_set.is_null() || trace_set.is_null(), false);
 	RID upsample_set;
 	if (resolve) {
 		upsample_set = sets->get_cache(upsample.shader.get_shader(), 0, frame, normal, depth,
 				Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, is_soft ? h.filtered_shadow : h.raw_shadow),
-				Uniform(RD::UNIFORM_TYPE_IMAGE, 4, p_targets.shadow_mask));
+				Uniform(RD::UNIFORM_TYPE_IMAGE, 4, p_targets.shadow_mask), Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, p_geo.curr_surface));
 		ERR_FAIL_COND_V(upsample_set.is_null(), false);
 	}
 
@@ -211,21 +197,15 @@ bool RTShadowPass::render(History &h, const DirectionalLightItem &p_light, const
 				return false;
 			}
 		}
-		const uint64_t version = trace.shader.get_version() + temporal.shader.get_version() + denoise.shader.get_version() + (resolve ? upsample.shader.get_version() : 0);
-		const bool reuse = h.has_history && light.shader_version == version && light.samples == p_environment.shadow_rt_samples &&
+		const uint64_t version = p_geo.shader_version + trace.shader.get_version() + temporal.shader.get_version() + denoise.shader.get_version() + (resolve ? upsample.shader.get_version() : 0);
+		const bool reuse = h.has_history && p_geo.has_history && light.shader_version == version && light.samples == p_environment.shadow_rt_samples &&
 				memcmp(light.direction, trace_params.direction, sizeof(light.direction)) == 0;
 		trace_params.frame_index = reuse ? light.frame_index : 0;
-		if (!h.wrote_surfaces) {
-			ERR_FAIL_COND_V(RD::get_singleton()->buffer_update(h.prev_frame_buffer, 0, sizeof(p_frame), h.has_history ? &h.prev_frame : &p_frame) != OK, false);
-		}
 		const RID temporal_set = sets->get_cache(temporal.shader.get_shader(), 0, frame,
-				Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 1, h.prev_frame_buffer),
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, p_targets.gbuffer_b), Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, p_targets.scene_depth),
+				Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 1, p_geo.prev_frame_buffer),
+				Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, p_geo.curr_surface), Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, p_geo.prev_surface),
 				Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, h.raw_shadow), Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, light.visibility[prev]),
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, h.prev_depth[prev]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, h.prev_normal[prev]),
-				Uniform(RD::UNIFORM_TYPE_IMAGE, 8, light.visibility[curr]),
-				Uniform(RD::UNIFORM_TYPE_IMAGE, 9, h.prev_depth[curr]), Uniform(RD::UNIFORM_TYPE_IMAGE, 10, h.prev_normal[curr]),
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 11, p_targets.velocity));
+				Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, p_geo.velocity), Uniform(RD::UNIFORM_TYPE_IMAGE, 7, light.visibility[curr]));
 		ERR_FAIL_COND_V(temporal_set.is_null(), false);
 
 		// The raw image is free after temporal. Reuse it for the second RG16F filter output.
@@ -234,7 +214,7 @@ bool RTShadowPass::render(History &h, const DirectionalLightItem &p_light, const
 		RID filter_sets[3];
 		for (int i = 0; i < 3; ++i) {
 			filter_sets[i] = sets->get_cache(denoise.shader.get_shader(), 0, frame,
-					Uniform(RD::UNIFORM_TYPE_TEXTURE, 1, h.prev_normal[curr]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, h.prev_depth[curr]),
+					Uniform(RD::UNIFORM_TYPE_TEXTURE, 1, p_geo.curr_surface),
 					Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, inputs[i]), Uniform(RD::UNIFORM_TYPE_IMAGE, 4, i == 1 ? h.raw_shadow : h.denoise_temp),
 					Uniform(RD::UNIFORM_TYPE_IMAGE, 5, output));
 			ERR_FAIL_COND_V(filter_sets[i].is_null(), false);
@@ -243,7 +223,7 @@ bool RTShadowPass::render(History &h, const DirectionalLightItem &p_light, const
 		dispatch("RT Shadow Trace", trace.pipeline, trace_set, trace_params, size, scene_set, label_color);
 		RENDER_TIMESTAMP("Yutrel RT Shadow Temporal");
 		const float dt_scale = p_time_step > 0 ? CLAMP(float(p_time_step * 60.0), 1.0f / 60.0f, 4.0f) : 1.0f;
-		dispatch("RT Shadow Temporal", temporal.pipeline, temporal_set, TemporalParams{ grid, reuse, 16.0f, dt_scale, !h.wrote_surfaces }, size, RID(), label_color);
+		dispatch("RT Shadow Temporal", temporal.pipeline, temporal_set, TemporalParams{ grid, reuse, 16.0f, dt_scale }, size, RID(), label_color);
 		RENDER_TIMESTAMP("Yutrel RT Shadow Denoise");
 		static constexpr Span<char> denoise_labels[] = { "RT Shadow Denoise 0", "RT Shadow Denoise 1", "RT Shadow Denoise 2" };
 		for (int i = 0; i < 3; ++i) {
@@ -252,7 +232,7 @@ bool RTShadowPass::render(History &h, const DirectionalLightItem &p_light, const
 #ifdef TOOLS_ENABLED
 		if (Engine::get_singleton()->is_editor_hint() && DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {
 			const bool stationary = reuse && light.last_scene_hash == p_scene.get_scene_hash() &&
-					memcmp(p_frame.unjittered_view_projection, h.prev_frame.unjittered_view_projection, sizeof(p_frame.unjittered_view_projection)) == 0;
+					memcmp(p_frame.unjittered_view_projection, p_geo.prev_frame->unjittered_view_projection, sizeof(p_frame.unjittered_view_projection)) == 0;
 			light.converged_frames = stationary ? MIN(light.converged_frames + 1, 16u) : 0;
 			if (light.converged_frames < 16) {
 				RenderingServerDefault::redraw_request();
@@ -265,7 +245,6 @@ bool RTShadowPass::render(History &h, const DirectionalLightItem &p_light, const
 		light.frame_index = trace_params.frame_index + 1;
 		light.shader_version = version;
 		light.rendered = true;
-		h.wrote_surfaces = true;
 	} else {
 		RENDER_TIMESTAMP("Yutrel RT Shadow Trace");
 		dispatch("RT Shadow Trace", trace.pipeline, trace_set, trace_params, size, scene_set, label_color);

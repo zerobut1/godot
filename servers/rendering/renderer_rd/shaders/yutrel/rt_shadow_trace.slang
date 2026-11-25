@@ -4,7 +4,7 @@ import rt_scene;
 import rt_shadow_common;
 
 [[vk::binding(0, 0)]] ConstantBuffer<FrameData> frame;
-[[vk::binding(1, 0)]] Texture2D<float4> gbuffer_b;
+[[vk::binding(1, 0)]] Texture2D<uint2> work_surface;
 [[vk::binding(2, 0)]] Texture2D<float> scene_depth;
 [[vk::binding(3, 0)]] [[vk::image_format("rg16f")]] RWTexture2D<float2> raw_shadow;
 
@@ -25,14 +25,15 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 	if (any(tid.xy >= uint2(size)))
 		return;
 	int2 pixel = params.grid.frame_pixel(int2(tid.xy), frame);
-	float depth = scene_depth.Load(int3(pixel, 0));
+	float3 N;
+	float depth;
+	unpack_surface(work_surface.Load(int3(tid.xy, 0)), N, depth);
 	if (depth <= 0 || params.has_tlas == 0)
 	{
 		raw_shadow[tid.xy] = float2(1, 0);
 		return;
 	}
 	float3 world = reconstruct_world_position(pixel + 0.5, depth, frame);
-	float3 N = normalize_or(gbuffer_b.Load(int3(pixel, 0)).rgb * 2 - 1, float3(0, 0, 1));
 	float3 Ng = geometric_normal(scene_depth, frame, pixel, params.grid.full_size, depth, world, N);
 	float3 L = params.direction.xyz;
 	float radius = params.direction.w;

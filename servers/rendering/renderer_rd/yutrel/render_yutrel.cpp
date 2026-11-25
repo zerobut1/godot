@@ -58,6 +58,7 @@ class YutrelRenderBufferData : public RenderBufferCustomDataRD {
 public:
 	RID path_tracer_accum;
 	DDGIPass::History ddgi_history;
+	RTGeometryPass::History rt_geometry_history;
 	RTAOPass::History rtao_history;
 	RTReflectionPass::History rt_reflection_history;
 	RTShadowPass::History rt_shadow_history;
@@ -101,6 +102,7 @@ public:
 		pt_sample_count = 0;
 		pt_state_hash = 0;
 		ddgi_history.clear();
+		rt_geometry_history.clear();
 		rtao_history.clear();
 		rt_reflection_history.clear();
 		rt_shadow_history.clear();
@@ -346,6 +348,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 			custom->prev_upscaler_active != active || ((special_view || is_rt_surface_debug_view(custom->prev_view) ||
 					custom->prev_view == DebugViewMode::PATH_TRACER) && settings.debug_view != custom->prev_view);
 	if (reset) {
+		custom->rt_geometry_history.invalidate();
 		custom->jitter_index = 0;
 		custom->rtao_history.has_history = false;
 		custom->rt_reflection_history.has_history = false;
@@ -390,6 +393,9 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		ERR_FAIL_COND(rd->buffer_update(frame_buffer, 0, sizeof(frame), &frame) != OK);
 	}
 
+	if (!environment.rtao_enabled && environment.shadow_mode != ShadowMode::RAY_TRACED && !environment.rt_reflection_enabled) {
+		custom->rt_geometry_history.clear();
+	}
 	if (environment.shadow_mode != ShadowMode::RAY_TRACED && custom->rt_shadow_history.raw_shadow.is_valid()) {
 		custom->rt_shadow_history.clear();
 	}
@@ -405,6 +411,8 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		lights = DirectionalLightPass::collect(*p_render_data);
 	}
 	if (settings.debug_view == DebugViewMode::PATH_TRACER) {
+		custom->rt_geometry_history.invalidate();
+		custom->rt_geometry_history.finish_frame(frame);
 		custom->rt_shadow_history.invalidate();
 		custom->rt_reflection_history.has_history = false;
 		custom->rtao_history.has_history = false;
@@ -506,10 +514,22 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	if (!has_volume && custom->ddgi_history.bindings.volume.is_valid()) {
 		custom->ddgi_history.clear();
 	}
+	const bool screen_shadow = needs_rt_shadow && (draw_lighting || debug_mask);
+	const bool need_geo_half = rt_ready && ((needs_rtao && environment.rtao_half_resolution) || (screen_shadow && environment.shadow_rt_half_resolution));
+	const bool need_geo_full = rt_ready && ((needs_rtao && !environment.rtao_half_resolution) || (screen_shadow && !environment.shadow_rt_half_resolution));
+	RTGeometryPass::View half_geo, full_geo;
+	if (need_geo_half) {
+		half_geo = rt_geometry_pass.prepare(custom->rt_geometry_history, true, targets, frame_buffer, frame);
+	}
+	if (need_geo_full) {
+		full_geo = rt_geometry_pass.prepare(custom->rt_geometry_history, false, targets, frame_buffer, frame);
+	}
+	const RTGeometryPass::View &ao_geo = environment.rtao_half_resolution ? half_geo : full_geo;
+	const RTGeometryPass::View &shadow_geo = environment.shadow_rt_half_resolution ? half_geo : full_geo;
 	bool rtao_ready = false;
-	if (needs_rtao && rt_ready) {
+	if (needs_rtao && ao_geo.curr_surface.is_valid()) {
 		RENDER_TIMESTAMP("> Yutrel RTAO");
-		rtao_ready = rtao_pass.render(custom->rtao_history, targets, frame_buffer, frame, environment, rt_scene, p_render_data->scene_data->time_step);
+		rtao_ready = rtao_pass.render(custom->rtao_history, ao_geo, targets, frame_buffer, frame, environment, rt_scene, p_render_data->scene_data->time_step);
 		RENDER_TIMESTAMP("< Yutrel RTAO");
 	}
 	if (!rtao_ready) {
@@ -525,7 +545,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	bool rt_reflection_ready = false;
 	if (needs_rt_reflection && rt_ready && ibl_ready) {
 		RENDER_TIMESTAMP("> Yutrel RT Reflection");
-		rt_reflection_ready = rt_reflection_pass.render(custom->rt_reflection_history, targets, frame_buffer, frame, environment, lights, local_light_pass,
+		rt_reflection_ready = rt_reflection_pass.render(custom->rt_reflection_history, half_geo.curr_surface.is_valid() ? &half_geo : nullptr, targets, frame_buffer, frame, environment, lights, local_light_pass,
 				ibl_pass, sky_params, bindings, rt_scene, p_render_data->scene_data->time_step);
 		RENDER_TIMESTAMP("< Yutrel RT Reflection");
 	}
@@ -545,9 +565,9 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		for (uint32_t i = 0; i < lights.size(); i++) {
 			DirectionalLightItem &light = lights[i];
 			bool rt_mask = false;
-			if (needs_rt_shadow && rt_ready && light.shadow_enabled) {
+			if (needs_rt_shadow && shadow_geo.curr_surface.is_valid() && light.shadow_enabled) {
 				RENDER_TIMESTAMP("> Yutrel RT Shadow");
-				rt_mask = rt_shadow_pass.render(custom->rt_shadow_history, light, targets, frame_buffer, frame, environment, rt_scene, p_render_data->scene_data->time_step);
+				rt_mask = rt_shadow_pass.render(custom->rt_shadow_history, shadow_geo, light, targets, frame_buffer, frame, environment, rt_scene, p_render_data->scene_data->time_step);
 				RENDER_TIMESTAMP("< Yutrel RT Shadow");
 				ran_rt_shadow |= rt_mask;
 			}
@@ -569,16 +589,17 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 			}
 		}
 	}
+	custom->rt_geometry_history.finish_frame(frame);
+	if (ran_rt_shadow) {
+		custom->rt_shadow_history.finish_frame();
+	} else {
+		custom->rt_shadow_history.invalidate();
+	}
 	if (draw_local || draw_transparent) {
 		ERR_FAIL_COND(!local_light_pass.build_clusters(*p_render_data, targets.region, projection));
 	}
 	if (draw_local) {
 		local_light_pass.render(targets, frame_buffer, directional_light_pass.get_dfg_lut(), opaque_local_rt && rt_ready ? &rt_scene : nullptr, lighting_only && lights.is_empty());
-	}
-	if (ran_rt_shadow) {
-		custom->rt_shadow_history.finish_frame(frame);
-	} else {
-		custom->rt_shadow_history.invalidate();
 	}
 	if ((draw_lighting || (indirect_only && ddgi_ready && base_pass.has_draws())) && ibl_ready) {
 		RENDER_TIMESTAMP("Yutrel IBL / Indirect");

@@ -30,6 +30,8 @@
 
 #pragma once
 
+#include "rt_geometry_pass.h"
+
 #include "servers/rendering/renderer_rd/yutrel/yutrel_environment_settings.h"
 #include "servers/rendering/renderer_rd/yutrel/yutrel_rt_scene.h"
 
@@ -58,22 +60,19 @@ public:
 	struct History {
 		HashMap<RID, LightHistory> lights;
 		RID raw_shadow, denoise_temp, filtered_shadow;
-		RID prev_depth[2], prev_normal[2], prev_frame_buffer;
-		YutrelFrameData prev_frame;
 		Size2i full_size;
 		bool half_resolution = true;
 		uint32_t slot = 0;
 		bool has_history = false;
-		bool wrote_surfaces = false;
 
 		bool ensure_size(Size2i p_full_size, bool p_half_resolution, bool p_soft);
-		void finish_frame(const YutrelFrameData &p_frame);
+		void finish_frame();
 		void invalidate();
 		void clear();
 		~History() { clear(); }
 	};
 
-	bool render(History &r_history, const DirectionalLightItem &p_light, const YutrelPipelineTargets &p_targets,
+	bool render(History &r_history, const RTGeometryPass::View &p_geo, const DirectionalLightItem &p_light, const YutrelPipelineTargets &p_targets,
 			RID p_frame_buffer, const YutrelFrameData &p_frame, const YutrelEnvironmentSettings &p_environment,
 			YutrelRayTracingScene &p_scene, double p_time_step);
 };

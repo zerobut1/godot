@@ -3,7 +3,7 @@ import rtao_common;
 import rt_scene;
 
 [[vk::binding(0, 0)]] ConstantBuffer<FrameData> frame;
-[[vk::binding(1, 0)]] Texture2D<float4> gbuffer_b;
+[[vk::binding(1, 0)]] Texture2D<uint2> work_surface;
 [[vk::binding(2, 0)]] Texture2D<float> scene_depth;
 [[vk::binding(3, 0)]] [[vk::image_format("r16f")]] RWTexture2D<float> raw_ao;
 
@@ -26,14 +26,15 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 	if (any(tid.xy >= uint2(size)))
 		return;
 	int2 pixel = rtao_frame_pixel(int2(tid.xy), params.pixel_scale, params.full_size, frame.viewport_origin);
-	float depth = scene_depth.Load(int3(pixel, 0));
+	float3 N;
+	float depth;
+	unpack_surface(work_surface.Load(int3(tid.xy, 0)), N, depth);
 	if (depth <= 0 || params.has_tlas == 0)
 	{
 		raw_ao[tid.xy] = 1;
 		return;
 	}
 	float3 world = reconstruct_world_position(pixel + 0.5, depth, frame);
-	float3 N = normalize_or(gbuffer_b.Load(int3(pixel, 0)).rgb * 2 - 1, float3(0, 0, 1));
 	float3 Ng = geometric_normal(scene_depth, frame, pixel, params.full_size, depth, world, N);
 	float3 origin = offset_ray_origin(world, Ng);
 	float t_min = min(0.099 * params.radius, max(0.002, length(frame.camera_position.xyz - world) * 0.0005));

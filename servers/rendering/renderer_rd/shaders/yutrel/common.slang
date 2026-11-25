@@ -131,6 +131,28 @@ public float3 unpack_octahedral_normal(float2 encoded)
 	return normalize(normal);
 }
 
+public float2 pack_octahedral_normal(float3 n)
+{
+	float3 an = abs(n);
+	float sum = an.x + an.y + an.z;
+	float2 oct = sum > 1e-12 ? n.xy / sum : float2(0);
+	if (n.z < 0)
+		oct = (1 - abs(oct.yx)) * select(oct >= 0, 1.0, -1.0);
+	return saturate(oct * 0.5 + 0.5);
+}
+
+public uint2 pack_surface(float3 n, float depth)
+{
+	uint2 q = uint2(round(pack_octahedral_normal(n) * 65535.0));
+	return uint2(q.x | (q.y << 16), asuint(depth));
+}
+
+public void unpack_surface(uint2 packed, out float3 n, out float depth)
+{
+	depth = asfloat(packed.y);
+	n = unpack_octahedral_normal(float2(packed.x & 0xffffu, packed.x >> 16) * (1.0 / 65535.0));
+}
+
 public float3 unpack_normal(float2 encoded, float tbn_angle, uint flags)
 {
 	float3 axis = unpack_octahedral_normal(encoded);
@@ -178,9 +200,35 @@ public float4 fullscreen_position(uint vertex_id)
 	return float4(corner * 4.0 - 1.0, 0.0, 1.0);
 }
 
+public float4 surface_plane_coeffs(float3 world, float3 N, FrameData frame)
+{
+	return N.x * frame.inv_view_projection[0] + N.y * frame.inv_view_projection[1]
+			+ N.z * frame.inv_view_projection[2] - dot(N, world) * frame.inv_view_projection[3];
+}
+
+public float4 depth_plane_coeffs(FrameData frame)
+{
+	float3 fwd = frame.camera_forward.xyz;
+	return dot(frame.camera_position.xyz, fwd) * frame.inv_view_projection[3] - fwd.x * frame.inv_view_projection[0]
+			- fwd.y * frame.inv_view_projection[1] - fwd.z * frame.inv_view_projection[2];
+}
+
+public float2 pixel_center_to_ndc(float2 pixel_center, FrameData frame)
+{
+	return (pixel_center - frame.viewport_origin) * frame.inv_viewport_size * 2.0 - 1.0;
+}
+
+public float pow16(float x)
+{
+	float x2 = x * x;
+	float x4 = x2 * x2;
+	float x8 = x4 * x4;
+	return x8 * x8;
+}
+
 public float3 reconstruct_world_position(float2 pixel, float depth, FrameData frame)
 {
-	float2 ndc = (pixel - frame.viewport_origin) * frame.inv_viewport_size * 2.0 - 1.0;
+	float2 ndc = pixel_center_to_ndc(pixel, frame);
 	float4 world = mul_4x4(frame.inv_view_projection, float4(ndc, depth, 1.0));
 	return world.xyz / world.w;
 }

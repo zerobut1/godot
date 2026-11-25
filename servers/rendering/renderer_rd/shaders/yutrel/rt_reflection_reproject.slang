@@ -18,11 +18,13 @@ import rt_reflection_common;
 [[vk::binding(13)]] [[vk::image_format("r8ui")]] Texture2D<uint> quad_offset;
 
 [[vk::binding(14)]] Texture2D<float2> velocity;
+[[vk::binding(15)]] Texture2D<uint2> half_surface;
+[[vk::binding(16)]] Texture2D<float2> half_velocity;
 
 struct ReprojectParams
 {
 	int2 full_size;
-	uint scale, has_history, stationary;
+	uint scale, has_history, stationary, has_half_geo;
 };
 [[vk::push_constant]] ConstantBuffer<ReprojectParams> params;
 
@@ -37,14 +39,13 @@ float4 nearest_guide(float2 p, int2 size)
 	return all(tap >= 0) && all(tap < size) ? prev_guide.Load(int3(tap, 0)) : float4(0);
 }
 
-void recover_history(int2 texel, int2 pixel, int2 size, float3 world, float distance, float3 N, float r, float3 current,
+void recover_history(int2 texel, int2 pixel, int2 size, float2 vel, float3 world, float distance, float3 N, float r, float3 current,
 		out float4 history, out float var)
 {
 	history = float4(0, 0, 0, 1);
 	var = 1;
 	// Reuse the exact stationary sample to avoid diffusing a sharp lobe.
 	float2 p = float2(texel);
-	float2 vel = velocity.Load(int3(pixel, 0));
 	SurfaceReprojection reproj = reproject_surface(pixel, vel, world, frame, prev_frame);
 	if (params.stationary == 0 || any(abs(vel) >= 1e-5))
 	{
@@ -102,14 +103,24 @@ void compute_main(uint3 tid : SV_DispatchThreadID, uint lane : SV_GroupIndex, ui
 	float4 weighted = 0;
 	if (all(int2(tid.xy) < size))
 	{
-		int2 p = reflection_sample_pixel(tid.xy, params.scale, quad_offset.Load(int3(tid.xy, 0)), params.full_size) + int2(frame.viewport_origin);
+		uint chosen = quad_offset.Load(int3(tid.xy, 0));
+		int2 p = reflection_sample_pixel(tid.xy, params.scale, chosen, params.full_size) + int2(frame.viewport_origin);
 		int3 coord = int3(p, 0);
 		float4 raw = raw_reflection.Load(int3(tid.xy, 0));
 		float4 g = 0;
 		if (raw.a >= 0)
 		{
-			float3 world = reconstruct_world_position(p + 0.5, scene_depth.Load(coord), frame);
-			float3 N = reflection_normal(gbuffer_b.Load(coord));
+			bool shared_anchor = params.has_half_geo != 0 && chosen == 0;
+			float depth;
+			float3 N;
+			if (shared_anchor)
+				unpack_surface(half_surface.Load(int3(tid.xy, 0)), N, depth);
+			else
+			{
+				depth = scene_depth.Load(coord);
+				N = reflection_normal(gbuffer_b.Load(coord));
+			}
+			float3 world = reconstruct_world_position(p + 0.5, depth, frame);
 			float r = gbuffer_c.Load(coord).r;
 			g = reflection_guide(N, linear_view_depth(world, frame), r);
 			if (r >= MIRROR_ROUGHNESS)
@@ -117,7 +128,14 @@ void compute_main(uint3 tid : SV_DispatchThreadID, uint lane : SV_GroupIndex, ui
 				float4 history = float4(0, 0, 0, 1);
 				float var = 1;
 				if (params.has_history != 0)
-					recover_history(tid.xy, p, size, world, raw.a, N, r, raw.rgb, history, var);
+				{
+					float2 vel;
+					if (shared_anchor)
+						vel = half_velocity.Load(int3(tid.xy, 0));
+					else
+						vel = velocity.Load(coord);
+					recover_history(tid.xy, p, size, vel, world, raw.a, N, r, raw.rgb, history, var);
+				}
 				reprojected[tid.xy] = history;
 				variance[tid.xy] = var;
 				float3 c = history.a > 1 ? lerp(raw.rgb, history.rgb, 0.3) : raw.rgb;

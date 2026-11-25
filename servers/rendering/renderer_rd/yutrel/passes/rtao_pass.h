@@ -30,6 +30,8 @@
 
 #pragma once
 
+#include "rt_geometry_pass.h"
+
 #include "servers/rendering/renderer_rd/yutrel/yutrel_environment_settings.h"
 #include "servers/rendering/renderer_rd/yutrel/yutrel_rt_scene.h"
 
@@ -45,9 +47,7 @@ class RTAOPass {
 public:
 	struct History {
 		RID ao_texture, raw_ao, denoise_temp, filtered_ao;
-		RID history[2], prev_depth[2], prev_normal[2];
-		RID prev_frame_buffer;
-		YutrelFrameData prev_frame;
+		RID history[2];
 		bool has_history = false;
 		uint32_t frame_index = 0;
 		uint32_t history_slot = 0;
@@ -69,7 +69,7 @@ public:
 
 	~RTAOPass();
 	RID get_fallback_ao();
-	bool render(History &r_history, const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const YutrelFrameData &p_frame,
+	bool render(History &r_history, const RTGeometryPass::View &p_geo, const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const YutrelFrameData &p_frame,
 			const YutrelEnvironmentSettings &p_environment, YutrelRayTracingScene &p_scene, double p_time_step);
 };
 

@@ -5,7 +5,11 @@ from pathlib import Path
 
 FIXTURE = Path(__file__).resolve().parent
 SHADERS = ("rtao_trace.slang", "rtao_temporal.slang", "rtao_denoise.slang", "rtao_upsample.slang")
-RELOAD_DEPENDENCIES = {"rtao_common.slang": SHADERS, **{shader: [shader] for shader in SHADERS}}
+RELOAD_DEPENDENCIES = {
+    "rtao_common.slang": [*SHADERS, "rt_geometry_prepare.slang"],
+    "rt_geometry_prepare.slang": ["rt_geometry_prepare.slang"],
+    **{shader: [shader] for shader in SHADERS},
+}
 
 if __name__ == "__main__":
     sys.path.insert(0, str(FIXTURE.parent))

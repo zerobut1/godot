@@ -41,6 +41,7 @@
 #include "passes/local_light_pass.h"
 #include "passes/output_pass.h"
 #include "passes/path_tracer_pass.h"
+#include "passes/rt_geometry_pass.h"
 #include "passes/rt_shadow_pass.h"
 #include "passes/rt_reflection_pass.h"
 #include "passes/rtao_pass.h"
@@ -111,6 +112,7 @@ class RenderYutrel : public RendererSceneRenderRD {
 	YutrelRayTracingScene rt_scene;
 	PathTracerPass path_tracer_pass;
 	DDGIPass ddgi_pass;
+	RTGeometryPass rt_geometry_pass;
 	RTAOPass rtao_pass;
 	RTReflectionPass rt_reflection_pass;
 	RTShadowPass rt_shadow_pass;

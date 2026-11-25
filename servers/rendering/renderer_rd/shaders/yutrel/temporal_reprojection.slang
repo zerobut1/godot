@@ -27,12 +27,7 @@ public bool moving_surface_compatible(float3 N, float z, float3 prev_normal, flo
 	return prev_z > 0 && dot(N, prev_normal) > 0.75 && abs(z - prev_z) < max(0.15, 0.1 * z);
 }
 
-public bool moving_history_tap(float3 world, float3 N, int2 pixel, float depth, float4 normal, FrameData frame, FrameData prev)
+public bool plane_compatible(float4 plane, float4 m3, float4 q, float threshold)
 {
-	if (depth <= 0)
-		return false;
-	float3 prev_world = reconstruct_world_position(pixel + 0.5, depth, prev);
-	float z = dot(frame.camera_position.xyz - world, frame.camera_forward.xyz);
-	float prev_z = dot(prev.camera_position.xyz - prev_world, prev.camera_forward.xyz);
-	return moving_surface_compatible(N, z, normalize_or(normal.rgb * 2 - 1, 0), prev_z);
+	return abs(dot(plane, q)) < threshold * abs(dot(m3, q));
 }

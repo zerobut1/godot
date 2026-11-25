@@ -48,6 +48,7 @@ using Uniform = RD::Uniform;
 
 RID RTAOPass::get_fallback_ao() {
 	if (fallback_ao.is_null()) {
+		const YutrelScopedLabel label("Yutrel White AO Upload");
 		RD::TextureFormat format;
 		format.format = RD::DATA_FORMAT_R16_SFLOAT;
 		format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT;
@@ -65,7 +66,7 @@ RTAOPass::~RTAOPass() {
 }
 
 void RTAOPass::History::clear() {
-	for (RID *rid : { &ao_texture, &raw_ao, &denoise_temp, &filtered_ao, &history[0], &history[1], &prev_depth[0], &prev_depth[1], &prev_normal[0], &prev_normal[1], &prev_frame_buffer }) {
+	for (RID *rid : { &ao_texture, &raw_ao, &denoise_temp, &filtered_ao, &history[0], &history[1] }) {
 		if (rid->is_valid()) {
 			RD::get_singleton()->free_rid(*rid);
 			*rid = RID();
@@ -86,20 +87,14 @@ bool RTAOPass::History::ensure_size(Size2i p_full_size, Size2i p_work_size) {
 	ao_texture = create_image(p_full_size, RD::DATA_FORMAT_R16_SFLOAT, "Yutrel RTAO");
 	raw_ao = create_image(p_work_size, RD::DATA_FORMAT_R16_SFLOAT, "Yutrel RTAO Raw");
 	denoise_temp = create_image(p_work_size, RD::DATA_FORMAT_R16_SFLOAT, "Yutrel RTAO Filter Temp");
-	prev_frame_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(prev_frame));
-	if (prev_frame_buffer.is_valid()) {
-		RD::get_singleton()->set_resource_name(prev_frame_buffer, "Yutrel RTAO PrevFrame UBO");
-	}
-	bool valid = ao_texture.is_valid() && raw_ao.is_valid() && denoise_temp.is_valid() && prev_frame_buffer.is_valid();
+	bool valid = ao_texture.is_valid() && raw_ao.is_valid() && denoise_temp.is_valid();
 	if (p_work_size != p_full_size) {
 		filtered_ao = create_image(p_work_size, RD::DATA_FORMAT_R16_SFLOAT, "Yutrel RTAO Filtered");
 		valid = valid && filtered_ao.is_valid();
 	}
 	for (int i = 0; i < 2; i++) {
 		history[i] = create_image(p_work_size, RD::DATA_FORMAT_R16G16_SFLOAT, "Yutrel RTAO History");
-		prev_depth[i] = create_image(p_work_size, RD::DATA_FORMAT_R32_SFLOAT, "Yutrel RTAO Depth");
-		prev_normal[i] = create_image(p_work_size, RD::DATA_FORMAT_R16G16B16A16_UNORM, "Yutrel RTAO Normal");
-		valid = valid && history[i].is_valid() && prev_depth[i].is_valid() && prev_normal[i].is_valid();
+		valid = valid && history[i].is_valid();
 	}
 	if (!valid) {
 		clear();
@@ -110,46 +105,38 @@ bool RTAOPass::History::ensure_size(Size2i p_full_size, Size2i p_work_size) {
 	return true;
 }
 
-bool RTAOPass::render(History &h, const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const YutrelFrameData &p_frame,
+bool RTAOPass::render(History &h, const RTGeometryPass::View &p_geo, const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const YutrelFrameData &p_frame,
 		const YutrelEnvironmentSettings &p_environment, YutrelRayTracingScene &p_scene, double p_time_step) {
 	const bool half_res = p_environment.rtao_half_resolution;
 	const Size2i full_size = p_targets.region.size;
-	const Size2i work_size = half_res ? Size2i((full_size.x + 1) / 2, (full_size.y + 1) / 2) : full_size;
-	const uint32_t pixel_scale = half_res ? 2 : 1;
+	const Size2i work_size = p_geo.work_size;
+	const uint32_t pixel_scale = p_geo.pixel_scale;
 	const bool trace_ready = trace.prepare("rtao_trace.slang");
 	const bool temporal_ready = temporal.prepare("rtao_temporal.slang");
 	const bool denoise_ready = denoise.prepare("rtao_denoise.slang");
 	const bool upsample_ready = !half_res || upsample.prepare("rtao_upsample.slang");
 	ERR_FAIL_COND_V(!trace_ready || !temporal_ready || !denoise_ready || !upsample_ready || !h.ensure_size(full_size, work_size), false);
-	const uint64_t version = trace.shader.get_version() + temporal.shader.get_version() + denoise.shader.get_version() + (half_res ? upsample.shader.get_version() : 0);
-	const bool reuse = h.has_history && h.shader_version == version && h.last_half_resolution == half_res &&
+	const uint64_t version = p_geo.shader_version + trace.shader.get_version() + temporal.shader.get_version() + denoise.shader.get_version() + (half_res ? upsample.shader.get_version() : 0);
+	const bool reuse = h.has_history && p_geo.has_history && h.shader_version == version && h.last_half_resolution == half_res &&
 			h.last_samples == p_environment.rtao_samples && h.last_radius == p_environment.rtao_radius;
 	const uint32_t prev = h.history_slot;
 	const uint32_t curr = 1 - prev;
 	const uint32_t frame_index = reuse ? h.frame_index : 0;
 
-	RD *rd = RD::get_singleton();
 	const Color label_color(0.5, 0.6, 0.75);
 	const YutrelScopedLabel pass_label("Yutrel RTAO", label_color);
-	ERR_FAIL_COND_V(rd->buffer_update(h.prev_frame_buffer, 0, sizeof(p_frame), reuse ? &h.prev_frame : &p_frame) != OK, false);
 	auto *sets = UniformSetCacheRD::get_singleton();
 	const Uniform frame(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, p_frame_buffer);
 	const Uniform normal(RD::UNIFORM_TYPE_TEXTURE, 1, p_targets.gbuffer_b);
 	const Uniform depth(RD::UNIFORM_TYPE_TEXTURE, 2, p_targets.scene_depth);
 	const RID scene_set = p_scene.get_uniform_set(trace.shader.get_shader());
-	const RID trace_set = sets->get_cache(trace.shader.get_shader(), 0, frame, normal, depth, Uniform(RD::UNIFORM_TYPE_IMAGE, 3, h.raw_ao));
+	const RID trace_set = sets->get_cache(trace.shader.get_shader(), 0, frame,
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 1, p_geo.curr_surface), depth, Uniform(RD::UNIFORM_TYPE_IMAGE, 3, h.raw_ao));
 	const RID temporal_set = sets->get_cache(temporal.shader.get_shader(), 0, frame,
-			Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 1, h.prev_frame_buffer),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, p_targets.gbuffer_b),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, p_targets.scene_depth),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, h.raw_ao),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, h.history[prev]),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, h.prev_depth[prev]),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, h.prev_normal[prev]),
-			Uniform(RD::UNIFORM_TYPE_IMAGE, 8, h.history[curr]),
-			Uniform(RD::UNIFORM_TYPE_IMAGE, 9, h.prev_depth[curr]),
-			Uniform(RD::UNIFORM_TYPE_IMAGE, 10, h.prev_normal[curr]),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 11, p_targets.velocity));
+			Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 1, p_geo.prev_frame_buffer),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, p_geo.curr_surface), Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, p_geo.prev_surface),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, h.raw_ao), Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, h.history[prev]),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, p_geo.velocity), Uniform(RD::UNIFORM_TYPE_IMAGE, 7, h.history[curr]));
 	// A 1x1 viewport has no separate filtered image. Its raw AO is free after temporal.
 	const RID filtered = h.filtered_ao.is_valid() ? h.filtered_ao : h.raw_ao;
 	const int filter_count = half_res ? 2 : 3;
@@ -157,7 +144,7 @@ bool RTAOPass::render(History &h, const YutrelPipelineTargets &p_targets, RID p_
 	RID filter_sets[3];
 	for (int i = 0; i < filter_count; i++) {
 		filter_sets[i] = sets->get_cache(denoise.shader.get_shader(), 0, frame,
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 1, h.prev_normal[curr]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, h.prev_depth[curr]),
+				Uniform(RD::UNIFORM_TYPE_TEXTURE, 1, p_geo.curr_surface),
 				Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, filter_images[i]), Uniform(RD::UNIFORM_TYPE_IMAGE, 4, filter_images[i + 1]));
 		ERR_FAIL_COND_V(filter_sets[i].is_null(), false);
 	}
@@ -165,8 +152,8 @@ bool RTAOPass::render(History &h, const YutrelPipelineTargets &p_targets, RID p_
 	RID upsample_set;
 	if (half_res) {
 		upsample_set = sets->get_cache(upsample.shader.get_shader(), 0, frame, normal, depth,
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, filtered), Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, h.prev_depth[curr]),
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, h.prev_normal[curr]), Uniform(RD::UNIFORM_TYPE_IMAGE, 6, h.ao_texture));
+				Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, filtered), Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, p_geo.curr_surface),
+				Uniform(RD::UNIFORM_TYPE_IMAGE, 6, h.ao_texture));
 		ERR_FAIL_COND_V(upsample_set.is_null(), false);
 	}
 
@@ -205,7 +192,7 @@ bool RTAOPass::render(History &h, const YutrelPipelineTargets &p_targets, RID p_
 	}
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
-		const bool stationary = reuse && memcmp(p_frame.unjittered_view_projection, h.prev_frame.unjittered_view_projection, sizeof(p_frame.unjittered_view_projection)) == 0 &&
+		const bool stationary = reuse && memcmp(p_frame.unjittered_view_projection, p_geo.prev_frame->unjittered_view_projection, sizeof(p_frame.unjittered_view_projection)) == 0 &&
 				h.last_scene_hash == p_scene.get_scene_hash() && h.last_intensity == p_environment.rtao_intensity;
 		h.converged_frames = stationary ? MIN(h.converged_frames + 1, 16u) : 0;
 		if (h.converged_frames < 16 && DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {
@@ -215,7 +202,6 @@ bool RTAOPass::render(History &h, const YutrelPipelineTargets &p_targets, RID p_
 		h.last_intensity = p_environment.rtao_intensity;
 	}
 #endif
-	h.prev_frame = p_frame;
 	h.shader_version = version;
 	h.last_samples = p_environment.rtao_samples;
 	h.last_radius = p_environment.rtao_radius;

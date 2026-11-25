@@ -33,6 +33,7 @@
 #include "directional_light_pass.h"
 #include "ibl_pass.h"
 #include "local_light_pass.h"
+#include "rt_geometry_pass.h"
 
 #include "servers/rendering/renderer_rd/yutrel/yutrel_rt_scene.h"
 
@@ -47,6 +48,7 @@ class RTReflectionPass {
 	YutrelComputeShader upsample;
 	YutrelStorageBuffer light_buffer;
 	RID fallback_reflection;
+	RID dummy_surface, dummy_velocity;
 
 public:
 	// Trace samples G-buffer B/C, depth, the quad offset, two sky maps and three DDGI atlases.
@@ -57,7 +59,7 @@ public:
 		RID history[2], guide[2], stats[2];
 		RID full_reflection[2], mirror_guide[2];
 		RID prev_frame_buffer;
-		RID ray_list, indirect_buffer;
+		RID ray_list, indirect_buffer, mirror_flags;
 		YutrelFrameData prev_frame;
 		bool has_history = false;
 		uint32_t frame_index = 0;
@@ -81,7 +83,7 @@ public:
 
 	~RTReflectionPass();
 	RID get_fallback_reflection();
-	bool render(History &r_history, const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const YutrelFrameData &p_frame,
+	bool render(History &r_history, const RTGeometryPass::View *p_half_geo, const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const YutrelFrameData &p_frame,
 			const YutrelEnvironmentSettings &p_environment, const LocalVector<DirectionalLightItem> &p_lights, const LocalLightPass &p_local, const IBLPass &p_ibl,
 			const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi, YutrelRayTracingScene &p_scene, double p_time_step);
 };

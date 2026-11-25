@@ -64,6 +64,8 @@ func run(spirv_path: String) -> bool:
 	var guides := filled(full, Image.FORMAT_RGBAH, Color.TRANSPARENT)
 	guides.set_pixel(2, 0, Color(0.5, 0.5, 1, 0))
 	guides.set_pixel(2, 1, Color(0.5, 0.5, 4, 0))
+	var mirror_flags := rd.storage_buffer_create(8, PackedInt32Array([1, 1]).to_byte_array())
+	rd.set_resource_name(mirror_flags, "Yutrel Region Test Mirror Flags")
 	var resources := [
 		ubo,
 		texture(filled(padded, Image.FORMAT_RGBAH, normal), RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT),
@@ -79,6 +81,7 @@ func run(spirv_path: String) -> bool:
 		texture(guides, RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT),
 		texture(filled(full, Image.FORMAT_RGBAH, Color.TRANSPARENT), RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT, true),
 		texture(velocity, RenderingDevice.DATA_FORMAT_R16G16_SFLOAT),
+		mirror_flags,
 	]
 	var uniforms: Array[RDUniform] = []
 	for i in resources.size():
@@ -87,6 +90,8 @@ func run(spirv_path: String) -> bool:
 		u.uniform_type = RenderingDevice.UNIFORM_TYPE_TEXTURE
 		if i == 0 or i == 9:
 			u.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
+		elif i == 14:
+			u.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 		elif i == 6 or i == 12:
 			u.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
 		u.add_id(resources[i])
@@ -95,7 +100,7 @@ func run(spirv_path: String) -> bool:
 	var list := rd.compute_list_begin()
 	rd.compute_list_bind_compute_pipeline(list, pipeline)
 	rd.compute_list_bind_uniform_set(list, bindings, 0)
-	var params := PackedInt32Array([0, 1, 1, 1, 0]).to_byte_array() # Phase (1,1) clamps at both odd edges.
+	var params := PackedInt32Array([0, 1, 1, 1, 0, 0]).to_byte_array() # Phase (1,1) clamps at both odd edges.
 	params.encode_float(0, 0.6)
 	rd.compute_list_set_push_constant(list, params, params.size())
 	rd.compute_list_dispatch(list, 1, 1, 1)
@@ -109,6 +114,7 @@ func run(spirv_path: String) -> bool:
 	rd.free_rid(pipeline)
 	rd.free_rid(shader)
 	rd.free_rid(ubo)
+	rd.free_rid(mirror_flags)
 	for rid in images:
 		rd.free_rid(rid)
 	rd.free()

@@ -10,33 +10,40 @@ import rt_reflection_common;
 [[vk::binding(7, 0)]] RWStructuredBuffer<uint> indirect_args;
 [[vk::binding(8, 0)]] [[vk::image_format("r8ui")]] RWTexture2D<uint> quad_offset;
 
+[[vk::binding(9, 0)]] RWStructuredBuffer<uint> mirror_flags;
+
 struct ClassifyParams
 {
 	int2 full_size;
 	uint pixel_scale;
 	float max_roughness;
-	uint has_tlas, dispatch_rows, frame_index;
+	uint has_tlas, dispatch_rows, frame_index, curr_slot;
 };
 [[vk::push_constant]] ConstantBuffer<ClassifyParams> params;
 
 groupshared uint group_count;
 groupshared uint group_base;
+groupshared uint group_has_mirror;
 
-bool classify_texel(int2 texel, out uint chosen)
+bool classify_texel(int2 texel, out uint chosen, out bool mirror)
 {
 	chosen = 0;
+	mirror = false;
 	if (params.has_tlas == 0)
 		return false;
 	int2 origin = int2(frame.viewport_origin);
 	if (params.pixel_scale == 1)
 	{
 		int3 coord = int3(texel + origin, 0);
-		return scene_depth.Load(coord) > 0 && gbuffer_a.Load(coord).a != 0 && gbuffer_c.Load(coord).r < params.max_roughness;
+		if (scene_depth.Load(coord) <= 0 || gbuffer_a.Load(coord).a == 0)
+			return false;
+		float r = gbuffer_c.Load(coord).r;
+		mirror = r < MIRROR_ROUGHNESS;
+		return r < params.max_roughness;
 	}
 
 	int2 base = texel * 2;
 	uint active_mask = 0;
-	bool mirror = false;
 	float best_roughness = params.max_roughness;
 	[unroll]
 	for (uint i = 0; i < 4; ++i)
@@ -76,7 +83,10 @@ bool classify_texel(int2 texel, out uint chosen)
 void compute_main(uint3 tid : SV_DispatchThreadID, uint lane : SV_GroupIndex)
 {
 	if (lane == 0)
+	{
 		group_count = 0;
+		group_has_mirror = 0;
+	}
 	GroupMemoryBarrierWithGroupSync();
 
 	uint width, height;
@@ -86,7 +96,10 @@ void compute_main(uint3 tid : SV_DispatchThreadID, uint lane : SV_GroupIndex)
 	if (all(tid.xy < uint2(width, height)))
 	{
 		uint chosen;
-		active = classify_texel(int2(tid.xy), chosen);
+		bool mirror;
+		active = classify_texel(int2(tid.xy), chosen, mirror);
+		if (mirror)
+			InterlockedOr(group_has_mirror, 1u);
 		quad_offset[tid.xy] = chosen;
 		if (active)
 			InterlockedAdd(group_count, 1, offset);
@@ -95,6 +108,8 @@ void compute_main(uint3 tid : SV_DispatchThreadID, uint lane : SV_GroupIndex)
 	}
 	GroupMemoryBarrierWithGroupSync();
 
+	if (lane == 0 && group_has_mirror != 0)
+		InterlockedOr(mirror_flags[params.curr_slot], 1u);
 	if (lane == 0 && group_count != 0)
 	{
 		uint base;

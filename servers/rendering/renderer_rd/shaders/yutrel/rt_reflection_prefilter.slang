@@ -13,11 +13,6 @@ groupshared float4 tile_radiance[16][16]; // Variance in alpha, negative for non
 groupshared float4 tile_surface[16][16]; // Decoded normal and linear depth.
 groupshared float tile_roughness[16][16];
 
-float radiance_weight(float3 avg, float3 color, float var)
-{
-	return max(exp(-(0.6 + 0.1 * var) * length(avg - color)), 0.01);
-}
-
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void compute_main(uint3 tid : SV_DispatchThreadID, uint3 local : SV_GroupThreadID, uint3 group : SV_GroupID)
@@ -48,7 +43,9 @@ void compute_main(uint3 tid : SV_DispatchThreadID, uint3 local : SV_GroupThreadI
 	float3 tile_average = sample_tile_average(average, linear_clamp, tid.xy, size);
 	float normal_power = normal_sigma(r);
 	float variance_weight = max(0.1, 1 - exp(-4.4 * c.a));
-	float sum_w = radiance_weight(tile_average, c.rgb, c.a);
+	float inv_depth_scale = -4.0 / max(0.05, 0.04 * surface.w);
+	float rad_scale = -(0.6 + 0.1 * c.a);
+	float sum_w = max(exp(rad_scale * length(tile_average - c.rgb)), 0.01);
 	float3 sum = sum_w * c.rgb;
 	float var_sum = sum_w * sum_w * c.a;
 	static const int2 offsets[15] = {
@@ -63,8 +60,9 @@ void compute_main(uint3 tid : SV_DispatchThreadID, uint3 local : SV_GroupThreadI
 			continue;
 		float4 g = tile_surface[t.y][t.x];
 		float w = pow(saturate(dot(surface.xyz, g.xyz)), normal_power);
-		w *= exp(-4 * abs(surface.w - g.w) / max(0.05, 0.04 * surface.w) - 32 * abs(r - tile_roughness[t.y][t.x]));
-		w *= variance_weight * radiance_weight(tile_average, tap.rgb, c.a);
+		float depth_rough_term = inv_depth_scale * abs(surface.w - g.w) - 32 * abs(r - tile_roughness[t.y][t.x]);
+		float rad_term = max(rad_scale * length(tile_average - tap.rgb), -4.605170186);
+		w *= variance_weight * exp(depth_rough_term + rad_term);
 		sum += w * tap.rgb;
 		sum_w += w;
 		var_sum += w * w * tap.a;

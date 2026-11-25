@@ -6,6 +6,7 @@ from pathlib import Path
 FIXTURE = Path(__file__).resolve().parent
 SHADERS = ("rt_shadow_trace.slang", "rt_shadow_temporal.slang", "rt_shadow_denoise.slang", "rt_shadow_upsample.slang")
 RELOAD_DEPENDENCIES = {
+    "rt_geometry_prepare.slang": ["rt_geometry_prepare.slang"],
     "rt_shadow_common.slang": SHADERS,
     **{shader: [shader] for shader in SHADERS},
     "rt_scene.slang": ["rt_shadow_trace.slang", "transparent_rt.slang"],

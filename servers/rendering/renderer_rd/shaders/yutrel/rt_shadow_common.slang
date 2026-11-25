@@ -15,11 +15,3 @@ public struct ShadowGrid
 		return rtao_frame_pixel(texel, pixel_scale, full_size, frame.viewport_origin);
 	}
 };
-
-public bool shadow_surface_compatible(float3 world, float3 N, float threshold, int2 pixel, float depth, float4 normal, FrameData frame)
-{
-	if (depth <= 0 || dot(N, normalize_or(normal.rgb * 2 - 1, 0)) <= 0.75)
-		return false;
-	float3 tap_world = reconstruct_world_position(pixel + 0.5, depth, frame);
-	return abs(dot(world - tap_world, N)) < threshold;
-}

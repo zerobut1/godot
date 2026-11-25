@@ -49,6 +49,7 @@ using Uniform = RD::Uniform;
 
 RID RTReflectionPass::get_fallback_reflection() {
 	if (fallback_reflection.is_null()) {
+		const YutrelScopedLabel label("Yutrel Empty RT Reflection Upload");
 		RD::TextureFormat format;
 		format.format = RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
 		format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT;
@@ -60,14 +61,16 @@ RID RTReflectionPass::get_fallback_reflection() {
 }
 
 RTReflectionPass::~RTReflectionPass() {
-	if (fallback_reflection.is_valid()) {
-		RD::get_singleton()->free_rid(fallback_reflection);
+	for (RID rid : { fallback_reflection, dummy_surface, dummy_velocity }) {
+		if (rid.is_valid()) {
+			RD::get_singleton()->free_rid(rid);
+		}
 	}
 }
 
 void RTReflectionPass::History::clear() {
 	for (RID *rid : { &quad_offset, &raw_reflection, &reprojected, &variance, &average, &filtered, &history[0], &history[1], &guide[0], &guide[1], &stats[0], &stats[1],
-				 &full_reflection[0], &full_reflection[1], &mirror_guide[0], &mirror_guide[1], &prev_frame_buffer, &ray_list, &indirect_buffer }) {
+				 &full_reflection[0], &full_reflection[1], &mirror_guide[0], &mirror_guide[1], &prev_frame_buffer, &ray_list, &indirect_buffer, &mirror_flags }) {
 		if (rid->is_valid()) {
 			RD::get_singleton()->free_rid(*rid);
 			*rid = RID();
@@ -88,6 +91,12 @@ bool RTReflectionPass::History::ensure_size(Size2i p_full_size, Size2i p_work_si
 	RD *rd = RD::get_singleton();
 	const uint64_t list_bytes = (uint64_t(p_work_size.x) * p_work_size.y + 1) * sizeof(uint32_t);
 	ERR_FAIL_COND_V(list_bytes > UINT32_MAX || p_work_size.x > 65536 || p_work_size.y > 65536, false);
+	Vector<uint8_t> zero_flags;
+	zero_flags.resize_initialized(2 * sizeof(uint32_t));
+	mirror_flags = rd->storage_buffer_create(zero_flags.size(), zero_flags);
+	if (mirror_flags.is_valid()) {
+		rd->set_resource_name(mirror_flags, "Yutrel RT Reflection Mirror Flags");
+	}
 	ray_list = rd->storage_buffer_create(list_bytes);
 	indirect_buffer = rd->storage_buffer_create(3 * sizeof(uint32_t), {}, RD::STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT);
 	constexpr RD::DataFormat rgba = RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
@@ -107,7 +116,7 @@ bool RTReflectionPass::History::ensure_size(Size2i p_full_size, Size2i p_work_si
 	if (prev_frame_buffer.is_valid()) {
 		rd->set_resource_name(prev_frame_buffer, "Yutrel RT Reflection PrevFrame UBO");
 	}
-	bool valid = quad_offset.is_valid() && raw_reflection.is_valid() && reprojected.is_valid() && filtered.is_valid() && average.is_valid() && variance.is_valid() && prev_frame_buffer.is_valid() && ray_list.is_valid() && indirect_buffer.is_valid();
+	bool valid = quad_offset.is_valid() && raw_reflection.is_valid() && reprojected.is_valid() && filtered.is_valid() && average.is_valid() && variance.is_valid() && prev_frame_buffer.is_valid() && ray_list.is_valid() && indirect_buffer.is_valid() && mirror_flags.is_valid();
 	for (int i = 0; i < 2; i++) {
 		history[i] = create_image(p_work_size, rgba, "Yutrel RT Reflection History");
 		guide[i] = create_image(p_work_size, rgba, "Yutrel RT Reflection Surface");
@@ -128,13 +137,15 @@ bool RTReflectionPass::History::ensure_size(Size2i p_full_size, Size2i p_work_si
 	return true;
 }
 
-bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const YutrelFrameData &p_frame,
+bool RTReflectionPass::render(History &h, const RTGeometryPass::View *p_half_geo, const YutrelPipelineTargets &p_targets, RID p_frame_buffer, const YutrelFrameData &p_frame,
 		const YutrelEnvironmentSettings &p_environment, const LocalVector<DirectionalLightItem> &p_lights, const LocalLightPass &p_local, const IBLPass &p_ibl,
 		const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi, YutrelRayTracingScene &p_scene, double p_time_step) {
 	const bool half_res = p_environment.rt_reflection_half_resolution;
 	const Size2i full_size = p_targets.region.size;
 	const Size2i work_size = half_res ? Size2i((full_size.x + 1) / 2, (full_size.y + 1) / 2) : full_size;
 	const uint32_t pixel_scale = half_res ? 2 : 1;
+	const Color label_color(0.5, 0.6, 0.75);
+	const YutrelScopedLabel pass_label("Yutrel RT Reflection", label_color);
 	const bool classify_ready = classify.prepare("rt_reflection_classify.slang");
 	const bool trace_ready = trace.prepare("rt_reflection_trace.slang");
 	const bool temporal_ready = temporal.prepare("rt_reflection_temporal.slang");
@@ -142,7 +153,17 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 	const bool prefilter_ready = prefilter.prepare("rt_reflection_prefilter.slang");
 	const bool upsample_ready = !half_res || upsample.prepare("rt_reflection_upsample.slang");
 	ERR_FAIL_COND_V(!classify_ready || !trace_ready || !temporal_ready || !reproject_ready || !prefilter_ready || !upsample_ready || !h.ensure_size(full_size, work_size, half_res), false);
-	const uint64_t version = classify.shader.get_version() + trace.shader.get_version() + temporal.shader.get_version() + reproject.shader.get_version() + prefilter.shader.get_version() + (half_res ? upsample.shader.get_version() : 0);
+	const bool has_half_geo = half_res && p_half_geo;
+	if (!has_half_geo) {
+		if (dummy_surface.is_null()) {
+			dummy_surface = create_image(Size2i(1, 1), RD::DATA_FORMAT_R32G32_UINT, "Yutrel RT Reflection Unused Surface");
+		}
+		if (dummy_velocity.is_null()) {
+			dummy_velocity = create_image(Size2i(1, 1), RD::DATA_FORMAT_R16G16_SFLOAT, "Yutrel RT Reflection Unused Velocity");
+		}
+		ERR_FAIL_COND_V(dummy_surface.is_null() || dummy_velocity.is_null(), false);
+	}
+	const uint64_t version = (has_half_geo ? p_half_geo->shader_version : 0) + classify.shader.get_version() + trace.shader.get_version() + temporal.shader.get_version() + reproject.shader.get_version() + prefilter.shader.get_version() + (half_res ? upsample.shader.get_version() : 0);
 	LocalVector<DirectionalLightParams> lights;
 	uint64_t lighting_hash = rt_hash_bytes(p_local.get_hash(), &p_sky, sizeof(p_sky));
 	lighting_hash = rt_hash_bytes(lighting_hash, &p_environment.linear_sky_color, sizeof(Color));
@@ -156,8 +177,6 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 	if (lights.is_empty()) {
 		lights.push_back({});
 	}
-	const Color label_color(0.5, 0.6, 0.75);
-	const YutrelScopedLabel pass_label("Yutrel RT Reflection", label_color);
 	ERR_FAIL_COND_V(!light_buffer.upload(lights, "Yutrel RT Reflection Lights"), false);
 	const bool reuse = h.has_history && h.lighting_hash == lighting_hash && h.shader_version == version && h.last_half_resolution == half_res &&
 			h.last_samples == p_environment.rt_reflection_samples && h.last_max_roughness == p_environment.rt_reflection_max_roughness;
@@ -176,7 +195,7 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 	const RID classify_set = sets->get_cache(classify.shader.get_shader(), 0, frame, depth, raw,
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, p_targets.gbuffer_a), roughness,
 			Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 6, h.ray_list), Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 7, h.indirect_buffer),
-			Uniform(RD::UNIFORM_TYPE_IMAGE, 8, h.quad_offset));
+			Uniform(RD::UNIFORM_TYPE_IMAGE, 8, h.quad_offset), Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 9, h.mirror_flags));
 	const RID scene_set = p_scene.get_uniform_set(trace.shader.get_shader());
 	const RID linear_clamp = RendererRD::MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
 	const RID trace_set = sets->get_cache(trace.shader.get_shader(), 0, frame, normal, depth, raw,
@@ -198,7 +217,9 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, h.guide[prev]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, h.stats[prev]),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 8, p_targets.gbuffer_c), Uniform(RD::UNIFORM_TYPE_IMAGE, 9, h.guide[curr]),
 			Uniform(RD::UNIFORM_TYPE_IMAGE, 10, h.reprojected), Uniform(RD::UNIFORM_TYPE_IMAGE, 11, h.variance), Uniform(RD::UNIFORM_TYPE_IMAGE, 12, h.average),
-			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, h.quad_offset), Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_targets.velocity));
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, h.quad_offset), Uniform(RD::UNIFORM_TYPE_TEXTURE, 14, p_targets.velocity),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 15, has_half_geo ? p_half_geo->curr_surface : dummy_surface),
+			Uniform(RD::UNIFORM_TYPE_TEXTURE, 16, has_half_geo ? p_half_geo->velocity : dummy_velocity));
 	const RID prefilter_set = sets->get_cache(prefilter.shader.get_shader(), 0, Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, h.raw_reflection),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 1, h.guide[curr]), Uniform(RD::UNIFORM_TYPE_TEXTURE, 2, h.variance),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, h.average), Uniform(RD::UNIFORM_TYPE_IMAGE, 4, h.filtered), Uniform(RD::UNIFORM_TYPE_SAMPLER, 5, linear_clamp));
@@ -215,7 +236,7 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 				Uniform(RD::UNIFORM_TYPE_TEXTURE, 7, p_targets.gbuffer_c), Uniform(RD::UNIFORM_TYPE_TEXTURE, 8, p_targets.gbuffer_a),
 				Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 9, h.prev_frame_buffer), Uniform(RD::UNIFORM_TYPE_TEXTURE, 10, h.full_reflection[prev]),
 				Uniform(RD::UNIFORM_TYPE_TEXTURE, 11, h.mirror_guide[prev]), Uniform(RD::UNIFORM_TYPE_IMAGE, 12, h.mirror_guide[curr]),
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, p_targets.velocity));
+				Uniform(RD::UNIFORM_TYPE_TEXTURE, 13, p_targets.velocity), Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 14, h.mirror_flags));
 		ERR_FAIL_COND_V(upsample_set.is_null(), false);
 	}
 
@@ -226,8 +247,8 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 		Size2i full_size;
 		uint32_t pixel_scale;
 		float max_roughness;
-		uint32_t has_tlas, dispatch_rows, frame_index;
-	} classify_params = { full_size, pixel_scale, p_environment.rt_reflection_max_roughness, p_scene.has_tlas(), dispatch_rows, frame_index };
+		uint32_t has_tlas, dispatch_rows, frame_index, curr_slot;
+	} classify_params = { full_size, pixel_scale, p_environment.rt_reflection_max_roughness, p_scene.has_tlas(), dispatch_rows, frame_index, curr };
 	struct TraceParams {
 		Size2i full_size;
 		uint32_t pixel_scale, dispatch_rows;
@@ -240,23 +261,24 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 	const bool stationary = reuse && memcmp(p_frame.unjittered_view_projection, h.prev_frame.unjittered_view_projection, sizeof(p_frame.unjittered_view_projection)) == 0;
 	struct ReprojectParams {
 		Size2i full_size;
-		uint32_t scale, has_history, stationary;
-	} reproject_params = { full_size, pixel_scale, reuse, stationary };
+		uint32_t scale, has_history, stationary, has_half_geo;
+	} reproject_params = { full_size, pixel_scale, reuse, stationary, has_half_geo };
 	struct ResolveParams {
 		Size2i size;
 		float dt_scale;
 	} resolve_params = { work_size, p_time_step > 0 ? CLAMP(float(p_time_step * 60.0), 1.0f / 60.0f, 4.0f) : 1.0f };
 	struct UpsampleParams {
 		float max_roughness;
-		uint32_t index, has_history, stationary, scene_changed;
-	} upsample_params = { p_environment.rt_reflection_max_roughness, frame_index, reuse, stationary, !same_scene };
-	static_assert(sizeof(ClassifyParams) == 28 && sizeof(TraceParams) == 48 && sizeof(ReprojectParams) == 20 && sizeof(ResolveParams) == 12 && sizeof(UpsampleParams) == 20);
+		uint32_t index, has_history, stationary, scene_changed, curr_slot;
+	} upsample_params = { p_environment.rt_reflection_max_roughness, frame_index, reuse, stationary, !same_scene, curr };
+	static_assert(sizeof(ClassifyParams) == 32 && sizeof(TraceParams) == 48 && sizeof(ReprojectParams) == 24 && sizeof(ResolveParams) == 12 && sizeof(UpsampleParams) == 24);
 
 	// RD tracks indirect and shader reads separately. Keep the count in ray_list[0]
 	// so trace can read it while the command processor consumes the indirect buffer.
 	const uint32_t indirect_args[] = { 0, dispatch_rows, 1 };
 	ERR_FAIL_COND_V(rd->buffer_update(h.indirect_buffer, 0, sizeof(indirect_args), indirect_args) != OK, false);
 	ERR_FAIL_COND_V(rd->buffer_clear(h.ray_list, 0, sizeof(uint32_t)) != OK, false);
+	ERR_FAIL_COND_V(rd->buffer_clear(h.mirror_flags, curr * sizeof(uint32_t), sizeof(uint32_t)) != OK, false);
 	RENDER_TIMESTAMP("Yutrel RT Reflection Classify");
 	dispatch("RT Reflection Classify", classify.pipeline, classify_set, classify_params, work_size, RID(), label_color);
 	RENDER_TIMESTAMP("Yutrel RT Reflection Trace");
