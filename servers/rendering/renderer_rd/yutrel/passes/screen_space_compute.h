@@ -49,9 +49,12 @@ inline RID create_image(Size2i p_size, RD::DataFormat p_format, const char *p_na
 }
 
 template <typename Params>
-void dispatch(RID p_pipeline, RID p_set, const Params &p_params, Size2i p_size, RID p_scene_set = RID()) {
+void dispatch(Span<char> p_label, RID p_pipeline, RID p_set, const Params &p_params, Size2i p_size, RID p_scene_set = RID(), const Color &p_color = Color(0.5, 0.7, 0.9)) {
 	// Separate lists expose each image write/read dependency to RD's command graph.
 	RD *rd = RD::get_singleton();
+	if (!p_label.is_empty()) {
+		rd->draw_command_begin_label(p_label, p_color);
+	}
 	const RD::ComputeListID list = rd->compute_list_begin();
 	rd->compute_list_bind_compute_pipeline(list, p_pipeline);
 	rd->compute_list_bind_uniform_set(list, p_set, 0);
@@ -61,6 +64,9 @@ void dispatch(RID p_pipeline, RID p_set, const Params &p_params, Size2i p_size, 
 	rd->compute_list_set_push_constant(list, &p_params, sizeof(p_params));
 	rd->compute_list_dispatch_threads(list, p_size.x, p_size.y, 1);
 	rd->compute_list_end();
+	if (!p_label.is_empty()) {
+		rd->draw_command_end_label();
+	}
 }
 
 } // namespace RendererSceneRenderImplementation::ScreenSpaceCompute

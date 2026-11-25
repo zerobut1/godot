@@ -87,6 +87,9 @@ bool RTAOPass::History::ensure_size(Size2i p_full_size, Size2i p_work_size) {
 	raw_ao = create_image(p_work_size, RD::DATA_FORMAT_R16_SFLOAT, "Yutrel RTAO Raw");
 	denoise_temp = create_image(p_work_size, RD::DATA_FORMAT_R16_SFLOAT, "Yutrel RTAO Filter Temp");
 	prev_frame_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(prev_frame));
+	if (prev_frame_buffer.is_valid()) {
+		RD::get_singleton()->set_resource_name(prev_frame_buffer, "Yutrel RTAO PrevFrame UBO");
+	}
 	bool valid = ao_texture.is_valid() && raw_ao.is_valid() && denoise_temp.is_valid() && prev_frame_buffer.is_valid();
 	if (p_work_size != p_full_size) {
 		filtered_ao = create_image(p_work_size, RD::DATA_FORMAT_R16_SFLOAT, "Yutrel RTAO Filtered");
@@ -126,6 +129,8 @@ bool RTAOPass::render(History &h, const YutrelPipelineTargets &p_targets, RID p_
 	const uint32_t frame_index = reuse ? h.frame_index : 0;
 
 	RD *rd = RD::get_singleton();
+	const Color label_color(0.5, 0.6, 0.75);
+	const YutrelScopedLabel pass_label("Yutrel RTAO", label_color);
 	ERR_FAIL_COND_V(rd->buffer_update(h.prev_frame_buffer, 0, sizeof(p_frame), reuse ? &h.prev_frame : &p_frame) != OK, false);
 	auto *sets = UniformSetCacheRD::get_singleton();
 	const Uniform frame(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, p_frame_buffer);
@@ -185,20 +190,19 @@ bool RTAOPass::render(History &h, const YutrelPipelineTargets &p_targets, RID p_
 	};
 	static_assert(sizeof(TraceParams) == 28 && sizeof(TemporalParams) == 24 && sizeof(FilterParams) == 24);
 
-	rd->draw_command_begin_label("Yutrel RTAO", Color(0.5, 0.6, 0.75));
 	RENDER_TIMESTAMP("Yutrel RTAO Trace");
-	dispatch(trace.pipeline, trace_set, trace_params, work_size, scene_set);
+	dispatch("RTAO Trace", trace.pipeline, trace_set, trace_params, work_size, scene_set, label_color);
 	RENDER_TIMESTAMP("Yutrel RTAO Temporal");
-	dispatch(temporal.pipeline, temporal_set, temporal_params, work_size);
+	dispatch("RTAO Temporal", temporal.pipeline, temporal_set, temporal_params, work_size, RID(), label_color);
 	RENDER_TIMESTAMP("Yutrel RTAO Denoise");
+	static constexpr Span<char> denoise_labels[] = { "RTAO Denoise 0", "RTAO Denoise 1", "RTAO Denoise 2" };
 	for (int i = 0; i < filter_count; i++) {
-		dispatch(denoise.pipeline, filter_sets[i], FilterParams{ full_size, pixel_scale, 1 << i, !half_res && i == filter_count - 1, p_environment.rtao_intensity }, work_size);
+		dispatch(denoise_labels[i], denoise.pipeline, filter_sets[i], FilterParams{ full_size, pixel_scale, 1 << i, !half_res && i == filter_count - 1, p_environment.rtao_intensity }, work_size, RID(), label_color);
 	}
 	if (half_res) {
 		RENDER_TIMESTAMP("Yutrel RTAO Upsample");
-		dispatch(upsample.pipeline, upsample_set, p_environment.rtao_intensity, full_size);
+		dispatch("RTAO Upsample", upsample.pipeline, upsample_set, p_environment.rtao_intensity, full_size, RID(), label_color);
 	}
-	rd->draw_command_end_label();
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
 		const bool stationary = reuse && memcmp(p_frame.unjittered_view_projection, h.prev_frame.unjittered_view_projection, sizeof(p_frame.unjittered_view_projection)) == 0 &&

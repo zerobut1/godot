@@ -206,12 +206,32 @@ inline bool YutrelComputeShader::prepare(const char *p_path) {
 	return pipeline.is_valid();
 }
 
+struct YutrelScopedLabel {
+	bool active = false;
+
+	YutrelScopedLabel(Span<char> p_label, const Color &p_color = Color(0.5, 0.7, 0.9)) {
+		if (!p_label.is_empty()) {
+			RD::get_singleton()->draw_command_begin_label(p_label, p_color);
+			active = true;
+		}
+	}
+
+	~YutrelScopedLabel() {
+		if (active) {
+			RD::get_singleton()->draw_command_end_label();
+		}
+	}
+
+	YutrelScopedLabel(const YutrelScopedLabel &) = delete;
+	YutrelScopedLabel &operator=(const YutrelScopedLabel &) = delete;
+};
+
 inline void draw_fullscreen(Span<char> p_label, const Color &p_color, const Rect2i &p_region, RID p_framebuffer, PipelineCacheRD &p_pipeline, RID p_uniform_set, const void *p_constants = nullptr, uint32_t p_constants_size = 0, bool p_clear = false, RID p_scene_set = RID()) {
 	RD *rd = RD::get_singleton();
 	const RID pipeline = p_pipeline.get_render_pipeline(RD::INVALID_FORMAT_ID, rd->framebuffer_get_format(p_framebuffer));
 	ERR_FAIL_COND(pipeline.is_null() || p_uniform_set.is_null());
 
-	rd->draw_command_begin_label(p_label, p_color);
+	const YutrelScopedLabel label(p_label, p_color);
 	const Vector<Color> clear_colors = p_clear ? Vector<Color>{ Color(0, 0, 0, 0) } : Vector<Color>();
 	const RD::DrawListID list = rd->draw_list_begin(p_framebuffer, p_clear ? RD::DRAW_CLEAR_COLOR_0 : RD::DRAW_DEFAULT_ALL, clear_colors, 0.0f, 0, p_region);
 	rd->draw_list_bind_render_pipeline(list, pipeline);
@@ -224,7 +244,6 @@ inline void draw_fullscreen(Span<char> p_label, const Color &p_color, const Rect
 	}
 	rd->draw_list_draw(list, false, 1, 3);
 	rd->draw_list_end();
-	rd->draw_command_end_label();
 }
 
 } // namespace RendererSceneRenderImplementation

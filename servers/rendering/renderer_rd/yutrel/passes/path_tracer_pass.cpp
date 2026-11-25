@@ -79,6 +79,7 @@ bool PathTracerPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_
 	if (lights.is_empty()) {
 		lights.push_back({});
 	}
+	const YutrelScopedLabel pass_label("Yutrel PathTracerPass", Color(0.25, 0.8, 0.65));
 	ERR_FAIL_COND_V(!light_buffer.upload(lights, "Yutrel Path Tracer Lights"), false);
 
 	struct Push {
@@ -104,7 +105,6 @@ bool PathTracerPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_
 			RD::Uniform(RD::UNIFORM_TYPE_IMAGE, 4, p_targets.path_tracer_accum), p_local.light_uniform());
 	ERR_FAIL_COND_V(scene_set.is_null() || pass_set.is_null(), false);
 
-	rd->draw_command_begin_label("Yutrel PathTracerPass", Color(0.25, 0.8, 0.65));
 	const RD::ComputeListID list = rd->compute_list_begin();
 	rd->compute_list_bind_compute_pipeline(list, pipeline);
 	rd->compute_list_bind_uniform_set(list, pass_set, 0);
@@ -112,7 +112,6 @@ bool PathTracerPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_
 	rd->compute_list_set_push_constant(list, &params, sizeof(params));
 	rd->compute_list_dispatch(list, (region.size.x + 7) / 8, (region.size.y + 7) / 8, 1);
 	rd->compute_list_end();
-	rd->draw_command_end_label();
 	++r_sample_count;
 #ifdef TOOLS_ENABLED
 	if (r_sample_count < MAX_SAMPLES && Engine::get_singleton()->is_editor_hint() &&

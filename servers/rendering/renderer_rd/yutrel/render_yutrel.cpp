@@ -385,7 +385,10 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		ERR_FAIL_COND(frame_buffer.is_null());
 		rd->set_resource_name(frame_buffer, "Yutrel Frame UBO");
 	}
-	ERR_FAIL_COND(rd->buffer_update(frame_buffer, 0, sizeof(frame), &frame) != OK);
+	{
+		const YutrelScopedLabel upload_label("Yutrel Frame Upload", Color(0.4, 0.45, 0.55));
+		ERR_FAIL_COND(rd->buffer_update(frame_buffer, 0, sizeof(frame), &frame) != OK);
+	}
 
 	if (environment.shadow_mode != ShadowMode::RAY_TRACED && custom->rt_shadow_history.raw_shadow.is_valid()) {
 		custom->rt_shadow_history.clear();
@@ -534,6 +537,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	bool ran_rt_shadow = false;
 	const bool draw_local = draw_lighting && local_light_pass.get_count() > 0;
 	if (indirect_only || (lighting_only && (!draw_lighting || (lights.is_empty() && !draw_local)))) {
+		const YutrelScopedLabel clear_label("Yutrel Clear Lighting", Color(0.3, 0.3, 0.4));
 		rd->draw_list_begin(targets.lighting_framebuffer, RD::DRAW_CLEAR_COLOR_0, { Color(0, 0, 0, indirect_only ? 1 : 0) }, 0.0f, 0, targets.region);
 		rd->draw_list_end();
 	}
@@ -645,6 +649,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	} else if (rt_surface_debug) {
 		RENDER_TIMESTAMP("Yutrel RT Surface Debug View");
 		if (!rt_ready || !debug_view_pass.render_rt_surface(targets, frame_buffer, rt_scene, settings.debug_view)) {
+			const YutrelScopedLabel clear_label("Yutrel Clear Output", Color(0.3, 0.3, 0.4));
 			rd->draw_list_begin(targets.output_framebuffer, RD::DRAW_CLEAR_COLOR_0, { Color(0, 0, 0, 1) }, 0.0f, 0, targets.output_region);
 			rd->draw_list_end();
 		}

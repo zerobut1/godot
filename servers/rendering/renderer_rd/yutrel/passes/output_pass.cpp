@@ -84,6 +84,9 @@ bool OutputPass::prepare() {
 	}
 	if (uniform_buffer.is_null()) {
 		uniform_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(OutputUniforms));
+		if (uniform_buffer.is_valid()) {
+			RD::get_singleton()->set_resource_name(uniform_buffer, "Yutrel Output UBO");
+		}
 	}
 	if (black_fallback.is_null()) {
 		RD::TextureFormat format;
@@ -124,6 +127,7 @@ void OutputPass::render(const YutrelPipelineTargets &p_targets, const YutrelEnvi
 		env.exposure, p_bloom.is_valid() ? env.bloom_intensity : 0.0f, p_full_post ? env.vignette_intensity : 0.0f, env.vignette_smoothness,
 		{ float(region.position.x), float(region.position.y) }, { 1.0f / region.size.x, 1.0f / region.size.y }
 	};
+	const YutrelScopedLabel pass_label("Yutrel OutputPass", Color(0.7, 0.9, 0.2));
 	ERR_FAIL_COND(rd->buffer_update(uniform_buffer, 0, sizeof(params), &params) != OK);
 	const Uniform ubo(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, uniform_buffer);
 	const Uniform external(RD::UNIFORM_TYPE_TEXTURE, 1, strip_size ? strip : black_fallback);
@@ -150,6 +154,7 @@ void OutputPass::render(const YutrelPipelineTargets &p_targets, const YutrelEnvi
 			const RID set = sets->get_cache(bake.shader.get_shader(), 0, ubo, external, sampler, Uniform(RD::UNIFORM_TYPE_IMAGE, 3, p_full_post->texture));
 			ERR_FAIL_COND(set.is_null());
 			RENDER_TIMESTAMP("Yutrel Color Grading LUT");
+			const YutrelScopedLabel bake_label("Yutrel Color Grading LUT", Color(0.75, 0.55, 0.9));
 			const RD::ComputeListID list = rd->compute_list_begin();
 			rd->compute_list_bind_compute_pipeline(list, bake.pipeline);
 			rd->compute_list_bind_uniform_set(list, set, 0);
@@ -164,7 +169,7 @@ void OutputPass::render(const YutrelPipelineTargets &p_targets, const YutrelEnvi
 	const RID set = sets->get_cache(output_shader.get_shader(), 0, ubo, external, sampler, Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, lut),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 4, p_hdr), Uniform(RD::UNIFORM_TYPE_TEXTURE, 5, p_bloom.is_valid() ? p_bloom : black_fallback),
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 6, p_exposure.is_valid() ? p_exposure : black_fallback));
-	draw_fullscreen("Yutrel OutputPass", Color(0.7, 0.9, 0.2), region, p_targets.output_framebuffer, output_pipeline, set);
+	draw_fullscreen({}, Color(0.7, 0.9, 0.2), region, p_targets.output_framebuffer, output_pipeline, set);
 }
 
 } // namespace RendererSceneRenderImplementation

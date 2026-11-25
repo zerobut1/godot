@@ -95,6 +95,7 @@ void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame
 		YutrelRayTracingScene *p_rt_scene, RID p_shadow_array, RID p_comparison_sampler, RID p_dfg_lut, const IBLPass &p_ibl, bool p_has_ibl, const YutrelSkyParams &p_sky, const DDGIBindings &p_ddgi,
 		RenderingServerTypes::RenderInfo *p_render_info) {
 	ERR_FAIL_COND(p_rt_scene && !prepare_shader(rt_shader, rt_pipelines, "transparent_rt.slang"));
+	const YutrelScopedLabel pass_label("Yutrel TransparentPass", Color(0.5, 0.7, 0.9));
 	ERR_FAIL_COND(!upload_geometry() || !_upload_lights(p_lights, p_rt_scene));
 	const RID active_shader = p_rt_scene ? rt_shader.get_shader() : shader.get_shader();
 	const RID scene_set = p_rt_scene ? p_rt_scene->get_uniform_set(active_shader, 2) : RID();
@@ -140,7 +141,6 @@ void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame
 	} draw = { 0, p_lights.size(), uint32_t(p_has_ibl), p_sky, IBLPass::get_prefilter_max_mip(), 0 };
 	static_assert(sizeof(draw) == 32);
 
-	rd->draw_command_begin_label("Yutrel TransparentPass", Color(0.5, 0.7, 0.9));
 	const RD::DrawListID list = rd->draw_list_begin(framebuffer, RD::DRAW_CLEAR_COLOR_1, Vector<Color>{ Color(), Color(0, 0, 0, 0) }, 0.0f, 0, p_targets.region, RDD::BreadcrumbMarker::TRANSPARENT_PASS);
 	rd->draw_list_bind_uniform_set(list, set, 0);
 	if (scene_set.is_valid()) {
@@ -149,7 +149,6 @@ void TransparentPass::render(const YutrelPipelineTargets &p_targets, RID p_frame
 	rd->draw_list_bind_uniform_set(list, csm_set, 3);
 	draw_range(list, 0, draws.size(), draw, p_render_info);
 	rd->draw_list_end();
-	rd->draw_command_end_label();
 }
 
 TransparentPass::~TransparentPass() {

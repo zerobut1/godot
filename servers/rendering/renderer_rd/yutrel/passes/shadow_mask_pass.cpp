@@ -50,11 +50,15 @@ bool ShadowMaskPass::prepare() {
 	}
 	if (shadow_buffer.is_null()) {
 		shadow_buffer = rd->uniform_buffer_create(sizeof(CSMShadowData));
+		if (shadow_buffer.is_valid()) {
+			rd->set_resource_name(shadow_buffer, "Yutrel CSM Shadow UBO");
+		}
 	}
 	return shader.get_shader().is_valid() && comparison_sampler.is_valid() && shadow_buffer.is_valid();
 }
 
 void ShadowMaskPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_buffer, RID p_depth_array, const CSMShadowData &p_shadow, bool p_show_cascades) {
+	const YutrelScopedLabel pass_label("Yutrel ShadowMaskPass", Color(0.4, 0.5, 0.8));
 	ERR_FAIL_COND(RD::get_singleton()->buffer_update(shadow_buffer, 0, sizeof(p_shadow), &p_shadow) != OK);
 	const RID set = UniformSetCacheRD::get_singleton()->get_cache(shader.get_shader(), 0,
 			RD::Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, p_frame_buffer),
@@ -67,7 +71,7 @@ void ShadowMaskPass::render(const YutrelPipelineTargets &p_targets, RID p_frame_
 			RD::Uniform(RD::UNIFORM_TYPE_SAMPLER, 7, comparison_sampler));
 	const uint32_t debug = p_show_cascades;
 	const RID framebuffer = p_show_cascades ? p_targets.lighting_framebuffer : FramebufferCacheRD::get_singleton()->get_cache(p_targets.shadow_mask);
-	draw_fullscreen("Yutrel ShadowMaskPass", Color(0.4, 0.5, 0.8), p_targets.region, framebuffer, pipeline, set, &debug, sizeof(debug));
+	draw_fullscreen({}, Color(0.4, 0.5, 0.8), p_targets.region, framebuffer, pipeline, set, &debug, sizeof(debug));
 }
 
 ShadowMaskPass::~ShadowMaskPass() {

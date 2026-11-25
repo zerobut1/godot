@@ -224,6 +224,7 @@ void EditorGizmoPass::render(const YutrelPipelineTargets &p_targets, const Rende
 	frame.inverse_viewport_size[1] = 1.0f / p_targets.output_region.size.y;
 	frame.orthogonal_scale = p_scene.cam_orthogonal ? Math::abs(1.0f / p_scene.cam_projection.columns[1].y) : 0.0f;
 	frame.convert_to_srgb = !p_targets.output_linear;
+	const YutrelScopedLabel pass_label("Yutrel EditorGizmoPass", Color(0.9, 0.6, 0.2));
 	ERR_FAIL_COND(rd->buffer_update(frame_buffer, 0, sizeof(frame), &frame) != OK);
 
 	draws.sort();
@@ -255,7 +256,6 @@ void EditorGizmoPass::render(const YutrelPipelineTargets &p_targets, const Rende
 				RD::Uniform(RD::UNIFORM_TYPE_SAMPLER, 1, sampler));
 	}
 
-	rd->draw_command_begin_label("Yutrel EditorGizmoPass", Color(0.9, 0.6, 0.2));
 	const RD::DrawListID list = rd->draw_list_begin(framebuffer, RD::DRAW_DEFAULT_ALL, {}, 0.0f, 0, p_targets.output_region);
 	rd->draw_list_bind_uniform_set(list, frame_set, 0);
 	RID bound_material_set;
@@ -281,7 +281,6 @@ void EditorGizmoPass::render(const YutrelPipelineTargets &p_targets, const Rende
 		}
 	}
 	rd->draw_list_end();
-	rd->draw_command_end_label();
 }
 
 } // namespace RendererSceneRenderImplementation

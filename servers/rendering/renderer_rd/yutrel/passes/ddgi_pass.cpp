@@ -167,6 +167,7 @@ bool DDGIPass::update(History &h, const YutrelDDGISettings &v, const LocalVector
 	gpu.relocation_enabled = v.probe_relocation;
 	gpu.classification_enabled = v.probe_classification;
 	gpu.active = 1;
+	const YutrelScopedLabel pass_label("Yutrel DDGI", Color(0.3f, 0.75f, 0.55f));
 	ERR_FAIL_COND_V(rd->buffer_update(h.bindings.volume, 0, sizeof(gpu), &gpu) != OK, false);
 
 	LocalVector<DirectionalLightParams> lights;

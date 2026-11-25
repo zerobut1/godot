@@ -91,6 +91,7 @@ bool UpscalerPass::render(History &h, const YutrelPipelineTargets &p_targets, co
 		h.display_size = display_size;
 	}
 
+	const YutrelScopedLabel pass_label("Yutrel FSR 2 Upscale", Color(0.85, 0.45, 0.75));
 	const float exposure = MAX(p_environment.exposure, 1e-4f);
 	if (p_exposure_override.is_null() && h.exposure != exposure) {
 		Vector<uint8_t> data;
@@ -104,6 +105,7 @@ bool UpscalerPass::render(History &h, const YutrelPipelineTargets &p_targets, co
 			format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT;
 			h.exposure_texture = rd->texture_create(format, {}, { data });
 			ERR_FAIL_COND_V(h.exposure_texture.is_null(), false);
+			rd->set_resource_name(h.exposure_texture, "Yutrel FSR2 Exposure");
 		} else {
 			ERR_FAIL_COND_V(rd->texture_update(h.exposure_texture, 0, data) != OK, false);
 		}

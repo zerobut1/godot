@@ -56,6 +56,7 @@ bool AutoExposurePass::render(History &h, RID p_color, Rect2i p_region, const Yu
 	if (h.histogram_buffer.is_null()) {
 		h.histogram_buffer = rd->storage_buffer_create(histogram_bytes);
 		ERR_FAIL_COND_V(h.histogram_buffer.is_null(), false);
+		rd->set_resource_name(h.histogram_buffer, "Yutrel AutoExposure Histogram");
 	}
 	if (h.exposure_texture.is_null()) {
 		RD::TextureFormat format;
@@ -63,6 +64,7 @@ bool AutoExposurePass::render(History &h, RID p_color, Rect2i p_region, const Yu
 		format.usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT;
 		h.exposure_texture = rd->texture_create(format, {});
 		ERR_FAIL_COND_V(h.exposure_texture.is_null(), false);
+		rd->set_resource_name(h.exposure_texture, "Yutrel AutoExposure");
 	}
 	auto *cache = UniformSetCacheRD::get_singleton();
 	const RID histogram_set = cache->get_cache(histogram.shader.get_shader(), 0,
@@ -70,8 +72,9 @@ bool AutoExposurePass::render(History &h, RID p_color, Rect2i p_region, const Yu
 	const RID adapt_set = cache->get_cache(adapt.shader.get_shader(), 0,
 			RD::Uniform(RD::UNIFORM_TYPE_STORAGE_BUFFER, 0, h.histogram_buffer), RD::Uniform(RD::UNIFORM_TYPE_IMAGE, 1, h.exposure_texture));
 	ERR_FAIL_COND_V(histogram_set.is_null() || adapt_set.is_null(), false);
+	const YutrelScopedLabel pass_label("Yutrel Auto Exposure", Color(0.9, 0.75, 0.35));
 	ERR_FAIL_COND_V(rd->buffer_clear(h.histogram_buffer, 0, histogram_bytes) != OK, false);
-	ScreenSpaceCompute::dispatch(histogram.pipeline, histogram_set, p_region, p_region.size);
+	ScreenSpaceCompute::dispatch("Auto Exposure Histogram", histogram.pipeline, histogram_set, p_region, p_region.size, RID(), Color(0.9, 0.75, 0.35));
 	struct AdaptParams {
 		float min_ev, max_ev, compensation, speed_up, speed_down, dt;
 		uint32_t reset;
@@ -79,7 +82,7 @@ bool AutoExposurePass::render(History &h, RID p_color, Rect2i p_region, const Yu
 	const AdaptParams params = { p_environment.auto_exposure_min_ev, p_environment.auto_exposure_max_ev, p_environment.auto_exposure_compensation,
 		p_environment.auto_exposure_speed_up, p_environment.auto_exposure_speed_down, p_time_step, !h.initialized };
 	static_assert(sizeof(AdaptParams) == 28 && sizeof(Rect2i) == 16);
-	ScreenSpaceCompute::dispatch(adapt.pipeline, adapt_set, params, Size2i(256, 1));
+	ScreenSpaceCompute::dispatch("Auto Exposure Adapt", adapt.pipeline, adapt_set, params, Size2i(256, 1), RID(), Color(0.9, 0.75, 0.35));
 	h.initialized = true;
 	return true;
 }

@@ -127,6 +127,9 @@ bool RTShadowPass::History::ensure_size(Size2i p_full_size, bool p_half_resoluti
 			filtered_shadow = create_image(size, RD::DATA_FORMAT_R16_SFLOAT, "Yutrel RT Shadow Filtered");
 		}
 		prev_frame_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(prev_frame));
+		if (prev_frame_buffer.is_valid()) {
+			RD::get_singleton()->set_resource_name(prev_frame_buffer, "Yutrel RT Shadow PrevFrame UBO");
+		}
 		bool valid = denoise_temp.is_valid() && prev_frame_buffer.is_valid() && (!p_half_resolution || filtered_shadow.is_valid());
 		for (int i = 0; i < 2; ++i) {
 			prev_depth[i] = create_image(size, RD::DATA_FORMAT_R32_SFLOAT, "Yutrel RT Shadow Depth");
@@ -194,6 +197,8 @@ bool RTShadowPass::render(History &h, const DirectionalLightItem &p_light, const
 
 	TraceParams trace_params = { {}, grid, uint32_t(p_environment.shadow_rt_samples), 0, p_scene.has_tlas() };
 	memcpy(trace_params.direction, p_light.params.direction, sizeof(trace_params.direction));
+	const Color label_color(0.4, 0.5, 0.8);
+	const YutrelScopedLabel pass_label("Yutrel RT Shadow", label_color);
 	if (is_soft) {
 		const uint32_t prev = h.slot, curr = 1 - prev;
 		LightHistory &light = h.lights[p_light.instance];
@@ -235,13 +240,14 @@ bool RTShadowPass::render(History &h, const DirectionalLightItem &p_light, const
 			ERR_FAIL_COND_V(filter_sets[i].is_null(), false);
 		}
 		RENDER_TIMESTAMP("Yutrel RT Shadow Trace");
-		dispatch(trace.pipeline, trace_set, trace_params, size, scene_set);
+		dispatch("RT Shadow Trace", trace.pipeline, trace_set, trace_params, size, scene_set, label_color);
 		RENDER_TIMESTAMP("Yutrel RT Shadow Temporal");
 		const float dt_scale = p_time_step > 0 ? CLAMP(float(p_time_step * 60.0), 1.0f / 60.0f, 4.0f) : 1.0f;
-		dispatch(temporal.pipeline, temporal_set, TemporalParams{ grid, reuse, 16.0f, dt_scale, !h.wrote_surfaces }, size);
+		dispatch("RT Shadow Temporal", temporal.pipeline, temporal_set, TemporalParams{ grid, reuse, 16.0f, dt_scale, !h.wrote_surfaces }, size, RID(), label_color);
 		RENDER_TIMESTAMP("Yutrel RT Shadow Denoise");
+		static constexpr Span<char> denoise_labels[] = { "RT Shadow Denoise 0", "RT Shadow Denoise 1", "RT Shadow Denoise 2" };
 		for (int i = 0; i < 3; ++i) {
-			dispatch(denoise.pipeline, filter_sets[i], FilterParams{ grid, 1 << i, i == 2, p_light.shadow_opacity }, size);
+			dispatch(denoise_labels[i], denoise.pipeline, filter_sets[i], FilterParams{ grid, 1 << i, i == 2, p_light.shadow_opacity }, size, RID(), label_color);
 		}
 #ifdef TOOLS_ENABLED
 		if (Engine::get_singleton()->is_editor_hint() && DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {
@@ -262,11 +268,11 @@ bool RTShadowPass::render(History &h, const DirectionalLightItem &p_light, const
 		h.wrote_surfaces = true;
 	} else {
 		RENDER_TIMESTAMP("Yutrel RT Shadow Trace");
-		dispatch(trace.pipeline, trace_set, trace_params, size, scene_set);
+		dispatch("RT Shadow Trace", trace.pipeline, trace_set, trace_params, size, scene_set, label_color);
 	}
 	if (resolve) {
 		RENDER_TIMESTAMP("Yutrel RT Shadow Upsample");
-		dispatch(upsample.pipeline, upsample_set, UpsampleParams{ grid, p_light.shadow_opacity }, full_size);
+		dispatch("RT Shadow Upsample", upsample.pipeline, upsample_set, UpsampleParams{ grid, p_light.shadow_opacity }, full_size, RID(), label_color);
 	}
 	return true;
 }

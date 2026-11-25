@@ -97,20 +97,33 @@ RID BloomPass::render(History &h, RID p_hdr, RID p_exposure, Rect2i p_region, co
 	const RID first_set = cache->get_cache(prefilter.shader.get_shader(), 0, Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, p_hdr),
 			Uniform(RD::UNIFORM_TYPE_IMAGE, 1, h.down_mips[0]), sampler, Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, p_exposure.is_valid() ? p_exposure : fallback));
 	ERR_FAIL_COND_V(first_set.is_null(), RID());
-	ScreenSpaceCompute::dispatch(prefilter.pipeline, first_set, params, h.sizes[0]);
+	const Color label_color(1.0, 0.65, 0.35);
+	const YutrelScopedLabel pass_label("Yutrel Bloom", label_color);
+	ScreenSpaceCompute::dispatch("Bloom Prefilter", prefilter.pipeline, first_set, params, h.sizes[0], RID(), label_color);
+
+	static constexpr Span<char> down_labels[] = {
+		"Bloom Downsample 0", "Bloom Downsample 1", "Bloom Downsample 2",
+		"Bloom Downsample 3", "Bloom Downsample 4", "Bloom Downsample 5"
+	};
+	static constexpr Span<char> up_labels[] = {
+		"Bloom Upsample 0", "Bloom Upsample 1", "Bloom Upsample 2",
+		"Bloom Upsample 3", "Bloom Upsample 4"
+	};
+	static_assert(sizeof(down_labels) / sizeof(down_labels[0]) == MAX_MIPS);
+	static_assert(sizeof(up_labels) / sizeof(up_labels[0]) == MAX_MIPS - 1);
 
 	for (int i = 1; i < h.count; ++i) {
 		const RID set = cache->get_cache(downsample.shader.get_shader(), 0, Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, h.down_mips[i - 1]),
 				Uniform(RD::UNIFORM_TYPE_IMAGE, 1, h.down_mips[i]), sampler);
 		ERR_FAIL_COND_V(set.is_null(), RID());
-		ScreenSpaceCompute::dispatch(downsample.pipeline, set, h.sizes[i], h.sizes[i]);
+		ScreenSpaceCompute::dispatch(down_labels[i], downsample.pipeline, set, h.sizes[i], h.sizes[i], RID(), label_color);
 	}
 	RID coarser = h.down_mips[h.count - 1];
 	for (int i = h.count - 2; i >= 0; --i) {
 		const RID set = cache->get_cache(upsample.shader.get_shader(), 0, Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, coarser),
 				Uniform(RD::UNIFORM_TYPE_IMAGE, 1, h.up_mips[i]), sampler, Uniform(RD::UNIFORM_TYPE_TEXTURE, 3, h.down_mips[i]));
 		ERR_FAIL_COND_V(set.is_null(), RID());
-		ScreenSpaceCompute::dispatch(upsample.pipeline, set, p_environment.bloom_scatter, h.sizes[i]);
+		ScreenSpaceCompute::dispatch(up_labels[i], upsample.pipeline, set, p_environment.bloom_scatter, h.sizes[i], RID(), label_color);
 		coarser = h.up_mips[i];
 	}
 	return coarser;

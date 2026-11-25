@@ -98,6 +98,15 @@ bool RTReflectionPass::History::ensure_size(Size2i p_full_size, Size2i p_work_si
 	average = create_image((p_work_size + Size2i(7, 7)) / 8, rgba, "Yutrel RT Reflection Tile Average");
 	variance = create_image(p_work_size, RD::DATA_FORMAT_R16_SFLOAT, "Yutrel RT Reflection Variance");
 	prev_frame_buffer = rd->uniform_buffer_create(sizeof(prev_frame));
+	if (ray_list.is_valid()) {
+		rd->set_resource_name(ray_list, "Yutrel RT Reflection Ray List");
+	}
+	if (indirect_buffer.is_valid()) {
+		rd->set_resource_name(indirect_buffer, "Yutrel RT Reflection Indirect");
+	}
+	if (prev_frame_buffer.is_valid()) {
+		rd->set_resource_name(prev_frame_buffer, "Yutrel RT Reflection PrevFrame UBO");
+	}
 	bool valid = quad_offset.is_valid() && raw_reflection.is_valid() && reprojected.is_valid() && filtered.is_valid() && average.is_valid() && variance.is_valid() && prev_frame_buffer.is_valid() && ray_list.is_valid() && indirect_buffer.is_valid();
 	for (int i = 0; i < 2; i++) {
 		history[i] = create_image(p_work_size, rgba, "Yutrel RT Reflection History");
@@ -147,6 +156,8 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 	if (lights.is_empty()) {
 		lights.push_back({});
 	}
+	const Color label_color(0.5, 0.6, 0.75);
+	const YutrelScopedLabel pass_label("Yutrel RT Reflection", label_color);
 	ERR_FAIL_COND_V(!light_buffer.upload(lights, "Yutrel RT Reflection Lights"), false);
 	const bool reuse = h.has_history && h.lighting_hash == lighting_hash && h.shader_version == version && h.last_half_resolution == half_res &&
 			h.last_samples == p_environment.rt_reflection_samples && h.last_max_roughness == p_environment.rt_reflection_max_roughness;
@@ -246,28 +257,29 @@ bool RTReflectionPass::render(History &h, const YutrelPipelineTargets &p_targets
 	const uint32_t indirect_args[] = { 0, dispatch_rows, 1 };
 	ERR_FAIL_COND_V(rd->buffer_update(h.indirect_buffer, 0, sizeof(indirect_args), indirect_args) != OK, false);
 	ERR_FAIL_COND_V(rd->buffer_clear(h.ray_list, 0, sizeof(uint32_t)) != OK, false);
-	rd->draw_command_begin_label("Yutrel RT Reflection", Color(0.5, 0.6, 0.75));
 	RENDER_TIMESTAMP("Yutrel RT Reflection Classify");
-	dispatch(classify.pipeline, classify_set, classify_params, work_size);
+	dispatch("RT Reflection Classify", classify.pipeline, classify_set, classify_params, work_size, RID(), label_color);
 	RENDER_TIMESTAMP("Yutrel RT Reflection Trace");
-	const RD::ComputeListID list = rd->compute_list_begin();
-	rd->compute_list_bind_compute_pipeline(list, trace.pipeline);
-	rd->compute_list_bind_uniform_set(list, trace_set, 0);
-	rd->compute_list_bind_uniform_set(list, scene_set, 1);
-	rd->compute_list_set_push_constant(list, &trace_params, sizeof(trace_params));
-	rd->compute_list_dispatch_indirect(list, h.indirect_buffer, 0);
-	rd->compute_list_end();
+	{
+		const YutrelScopedLabel trace_label("RT Reflection Trace", label_color);
+		const RD::ComputeListID list = rd->compute_list_begin();
+		rd->compute_list_bind_compute_pipeline(list, trace.pipeline);
+		rd->compute_list_bind_uniform_set(list, trace_set, 0);
+		rd->compute_list_bind_uniform_set(list, scene_set, 1);
+		rd->compute_list_set_push_constant(list, &trace_params, sizeof(trace_params));
+		rd->compute_list_dispatch_indirect(list, h.indirect_buffer, 0);
+		rd->compute_list_end();
+	}
 	RENDER_TIMESTAMP("Yutrel RT Reflection Reproject");
-	dispatch(reproject.pipeline, reproject_set, reproject_params, work_size);
+	dispatch("RT Reflection Reproject", reproject.pipeline, reproject_set, reproject_params, work_size, RID(), label_color);
 	RENDER_TIMESTAMP("Yutrel RT Reflection Prefilter");
-	dispatch(prefilter.pipeline, prefilter_set, work_size, work_size);
+	dispatch("RT Reflection Prefilter", prefilter.pipeline, prefilter_set, work_size, work_size, RID(), label_color);
 	RENDER_TIMESTAMP("Yutrel RT Reflection Temporal");
-	dispatch(temporal.pipeline, temporal_set, resolve_params, work_size);
+	dispatch("RT Reflection Temporal", temporal.pipeline, temporal_set, resolve_params, work_size, RID(), label_color);
 	if (half_res) {
 		RENDER_TIMESTAMP("Yutrel RT Reflection Upsample");
-		dispatch(upsample.pipeline, upsample_set, upsample_params, full_size);
+		dispatch("RT Reflection Upsample", upsample.pipeline, upsample_set, upsample_params, full_size, RID(), label_color);
 	}
-	rd->draw_command_end_label();
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
 		h.converged_frames = stationary && same_scene ? MIN(h.converged_frames + 1, 32u) : 0;

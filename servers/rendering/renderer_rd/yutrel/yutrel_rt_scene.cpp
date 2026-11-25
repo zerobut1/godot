@@ -240,6 +240,7 @@ struct YutrelRayTracingScene::MeshEntry {
 		blas = rd->blas_create(geometries, RD::ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT);
 		ERR_FAIL_COND_V(blas.is_null(), false);
 		rd->set_resource_name(blas, "Yutrel Mesh BLAS");
+		const YutrelScopedLabel blas_label("Yutrel RT BLAS Build", Color(0.45, 0.55, 0.75));
 		return rd->blas_build(blas) == OK;
 	}
 
@@ -277,8 +278,11 @@ bool YutrelRayTracingScene::_update_arena(const Vector<RID> &p_meshes) {
 		merged_vertices.push_back({});
 		merged_indices.push_back(0);
 	}
-	if (!vertices.upload(merged_vertices, "Yutrel RT Vertices") || !indices.upload(merged_indices, "Yutrel RT Indices")) {
-		return false;
+	{
+		const YutrelScopedLabel upload_label("Yutrel RT Arena Upload", Color(0.45, 0.55, 0.75));
+		if (!vertices.upload(merged_vertices, "Yutrel RT Vertices") || !indices.upload(merged_indices, "Yutrel RT Indices")) {
+			return false;
+		}
 	}
 	arena_blas = std::move(active_blas);
 	return true;
@@ -431,6 +435,7 @@ bool YutrelRayTracingScene::update(const RenderDataRD &p_data, YutrelMaterialBri
 		}
 		rd->set_resource_name(tlas, "Yutrel Scene TLAS");
 	}
+	const YutrelScopedLabel tlas_label("Yutrel RT TLAS Build", Color(0.45, 0.55, 0.75));
 	ERR_FAIL_COND_V(rd->tlas_build(tlas, builds) != OK, false);
 	has_instances = !records.is_empty();
 	if (!has_instances) {

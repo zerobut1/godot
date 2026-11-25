@@ -147,6 +147,7 @@ bool LocalLightPass::collect(const RenderDataRD &p_data) {
 	if (items.is_empty()) {
 		items.push_back({});
 	}
+	const YutrelScopedLabel upload_label("Yutrel Local Lights Upload", Color(0.95, 0.65, 0.25));
 	return local_light_buffer.upload(items, "Yutrel Local Lights");
 }
 
@@ -155,12 +156,21 @@ bool LocalLightPass::build_clusters(const RenderDataRD &p_data, const Rect2i &p_
 	constexpr uint32_t cells = GRID_X * GRID_Y * GRID_Z;
 	if (grid.is_null()) {
 		grid = rd->storage_buffer_create(cells * 2 * sizeof(uint32_t));
+		if (grid.is_valid()) {
+			rd->set_resource_name(grid, "Yutrel Cluster Grid");
+		}
 	}
 	if (indices.is_null()) {
 		indices = rd->storage_buffer_create(cells * MAX_LIGHTS_PER_CLUSTER * sizeof(uint32_t));
+		if (indices.is_valid()) {
+			rd->set_resource_name(indices, "Yutrel Cluster Indices");
+		}
 	}
 	if (params_buffer.is_null()) {
 		params_buffer = rd->uniform_buffer_create(sizeof(ClusterParams));
+		if (params_buffer.is_valid()) {
+			rd->set_resource_name(params_buffer, "Yutrel Cluster Params UBO");
+		}
 	}
 	ERR_FAIL_COND_V(grid.is_null() || indices.is_null() || params_buffer.is_null(), false);
 
@@ -183,6 +193,7 @@ bool LocalLightPass::build_clusters(const RenderDataRD &p_data, const Rect2i &p_
 		params.viewport_origin[axis] = p_region.position[axis];
 		params.inv_viewport_size[axis] = 1.0f / p_region.size[axis];
 	}
+	const YutrelScopedLabel pass_label("Yutrel Local Light Cluster", Color(0.95, 0.65, 0.25));
 	ERR_FAIL_COND_V(rd->buffer_update(params_buffer, 0, sizeof(params), &params) != OK, false);
 	if (!light_count) {
 		return true;

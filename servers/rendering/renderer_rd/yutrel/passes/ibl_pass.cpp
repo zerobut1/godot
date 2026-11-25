@@ -235,45 +235,56 @@ bool IBLPass::_bake(const BakeKey &p_key) {
 	const bool use_panorama = p_key.panorama.is_valid();
 	const RID panorama = use_panorama ? p_key.panorama : RendererRD::TextureStorage::get_singleton()->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_WHITE);
 	const Color color = p_key.color;
-	for (uint32_t face = 0; face < 6; face++) {
-		const RID set = sets->get_cache(equirect.shader.get_shader(), 0,
-				Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, panorama),
-				Uniform(RD::UNIFORM_TYPE_SAMPLER, 1, panorama_sampler),
-				Uniform(RD::UNIFORM_TYPE_IMAGE, 2, source.face(0, face)));
-		const EquirectParams params = { { color.r, color.g, color.b }, use_panorama, face, SOURCE_SIZE };
-		if (!dispatch(equirect.pipeline, set, params, SOURCE_SIZE, SOURCE_SIZE)) {
-			return false;
+	const Color label_color(0.35, 0.6, 0.85);
+	{
+		const YutrelScopedLabel stage_label("IBL Equirect to Cube", label_color);
+		for (uint32_t face = 0; face < 6; face++) {
+			const RID set = sets->get_cache(equirect.shader.get_shader(), 0,
+					Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, panorama),
+					Uniform(RD::UNIFORM_TYPE_SAMPLER, 1, panorama_sampler),
+					Uniform(RD::UNIFORM_TYPE_IMAGE, 2, source.face(0, face)));
+			const EquirectParams params = { { color.r, color.g, color.b }, use_panorama, face, SOURCE_SIZE };
+			if (!dispatch(equirect.pipeline, set, params, SOURCE_SIZE, SOURCE_SIZE)) {
+				return false;
+			}
 		}
 	}
 
-	for (uint32_t mip = 1; mip < SOURCE_MIPS; mip++) {
-		const uint32_t size = SOURCE_SIZE >> mip;
-		for (uint32_t face = 0; face < 6; face++) {
-			const RID set = sets->get_cache(downsample.shader.get_shader(), 0,
-					Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, source.face(mip - 1, face)),
-					Uniform(RD::UNIFORM_TYPE_IMAGE, 1, source.face(mip, face)));
-			if (!dispatch(downsample.pipeline, set, size, size, size)) {
-				return false;
+	{
+		const YutrelScopedLabel stage_label("IBL Downsample Cube", label_color);
+		for (uint32_t mip = 1; mip < SOURCE_MIPS; mip++) {
+			const uint32_t size = SOURCE_SIZE >> mip;
+			for (uint32_t face = 0; face < 6; face++) {
+				const RID set = sets->get_cache(downsample.shader.get_shader(), 0,
+						Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, source.face(mip - 1, face)),
+						Uniform(RD::UNIFORM_TYPE_IMAGE, 1, source.face(mip, face)));
+				if (!dispatch(downsample.pipeline, set, size, size, size)) {
+					return false;
+				}
 			}
 		}
 	}
 
 	constexpr float texel_solid_angle = 4.0f * Math::PI / (6.0f * SOURCE_SIZE * SOURCE_SIZE);
-	for (uint32_t mip = 0; mip < PREFILTER_MIPS; mip++) {
-		const uint32_t size = PREFILTER_SIZE >> mip;
-		const float mip_fraction = float(mip) / (PREFILTER_MIPS - 1);
-		for (uint32_t face = 0; face < 6; face++) {
-			const RID set = sets->get_cache(prefilter.shader.get_shader(), 0,
-					Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, source.texture),
-					Uniform(RD::UNIFORM_TYPE_SAMPLER, 1, cube_sampler),
-					Uniform(RD::UNIFORM_TYPE_IMAGE, 2, filtered.face(mip, face)));
-			const PrefilterParams params = { face, size, mip_fraction, texel_solid_angle };
-			if (!dispatch(prefilter.pipeline, set, params, size, size)) {
-				return false;
+	{
+		const YutrelScopedLabel stage_label("IBL Prefilter Specular", label_color);
+		for (uint32_t mip = 0; mip < PREFILTER_MIPS; mip++) {
+			const uint32_t size = PREFILTER_SIZE >> mip;
+			const float mip_fraction = float(mip) / (PREFILTER_MIPS - 1);
+			for (uint32_t face = 0; face < 6; face++) {
+				const RID set = sets->get_cache(prefilter.shader.get_shader(), 0,
+						Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, source.texture),
+						Uniform(RD::UNIFORM_TYPE_SAMPLER, 1, cube_sampler),
+						Uniform(RD::UNIFORM_TYPE_IMAGE, 2, filtered.face(mip, face)));
+				const PrefilterParams params = { face, size, mip_fraction, texel_solid_angle };
+				if (!dispatch(prefilter.pipeline, set, params, size, size)) {
+					return false;
+				}
 			}
 		}
 	}
 
+	const YutrelScopedLabel stage_label("IBL Convolve SH", label_color);
 	const RID point = RendererRD::MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
 	const RID set = sets->get_cache(convolve_sh.shader.get_shader(), 0,
 			Uniform(RD::UNIFORM_TYPE_TEXTURE, 0, sh_source_view),

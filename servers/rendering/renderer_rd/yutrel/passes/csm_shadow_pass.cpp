@@ -148,6 +148,7 @@ bool CSMShadowPass::render(const RenderDataRD &p_data, LocalVector<DirectionalLi
 		return true;
 	}
 	ERR_FAIL_COND_V(!_ensure_array(p_resolution, layers), false);
+	const YutrelScopedLabel pass_label("Yutrel CSMShadowPass", Color(0.3, 0.4, 0.7));
 	RD *rd = RD::get_singleton();
 	RID set;
 	if (has_draws()) {
@@ -159,7 +160,6 @@ bool CSMShadowPass::render(const RenderDataRD &p_data, LocalVector<DirectionalLi
 		resolve_draws(rd->framebuffer_get_format(framebuffers[0]), pipelines);
 	}
 
-	rd->draw_command_begin_label("Yutrel CSMShadowPass", Color(0.3, 0.4, 0.7));
 	uint32_t begin = 0;
 	for (const DirectionalLightItem &item : r_lights) {
 		for (uint32_t i = 0; i < item.shadow.cascade_count; i++) {
@@ -178,7 +178,6 @@ bool CSMShadowPass::render(const RenderDataRD &p_data, LocalVector<DirectionalLi
 			begin = draw_ends[layer];
 		}
 	}
-	rd->draw_command_end_label();
 	return true;
 }
 
