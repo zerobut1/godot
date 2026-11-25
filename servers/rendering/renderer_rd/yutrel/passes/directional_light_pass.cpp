@@ -121,6 +121,9 @@ LocalVector<DirectionalLightItem> DirectionalLightPass::collect(const RenderData
 			const Vector3 direction = lights->light_instance_get_base_transform(instance).basis.get_column(2).normalized();
 			const float energy = lights->light_get_param(light, RSE::LIGHT_PARAM_ENERGY) * (lights->light_is_negative(light) ? -1.0f : 1.0f);
 			const Color radiance = lights->light_get_color(light).srgb_to_linear() * energy;
+			if (radiance.r == 0.0f && radiance.g == 0.0f && radiance.b == 0.0f) {
+				continue;
+			}
 			DirectionalLightItem item;
 			item.instance = instance;
 			item.shadow_enabled = lights->light_has_shadow(light);

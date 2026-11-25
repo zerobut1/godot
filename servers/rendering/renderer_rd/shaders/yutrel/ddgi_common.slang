@@ -85,8 +85,8 @@ float2 fold_oct(float2 p)
 
 public float2 ddgi_oct_encode(float3 n)
 {
-	float2 p = n.xy / dot(abs(n), float3(1));
-	return n.z < 0 ? fold_oct(p) : p;
+	float2 p = n.xy * rcp(abs(n.x) + abs(n.y) + abs(n.z));
+	return select(bool2(n.z < 0.0), fold_oct(p), p);
 }
 
 public float3 ddgi_oct_decode(float2 p)
@@ -130,42 +130,77 @@ public float ddgi_luminance(float3 color)
 	return dot(color, float3(0.2126, 0.7152, 0.0722));
 }
 
-public float3 ddgi_get_volume_irradiance(float3 world, float3 bias, float3 n, DDGIVolumeData v, DDGIResources probes)
+float3 ddgi_eval_volume_irradiance<let FastGamma5 : bool>(float3 world, float3 bias, float3 n, DDGIVolumeData v, DDGIResources probes)
 {
+	float3 inv_spacing = rcp(v.spacing);
+	int3 max_probe = v.probe_counts - 1;
+	float3 half_counts = 0.5 * float3(max_probe);
 	float3 biased_world = world + bias;
-	int3 base = int3(clamp((biased_world - v.origin) / v.spacing + 0.5 * (v.probe_counts - 1), 0, v.probe_counts - 1));
-	float3 alpha = saturate((biased_world - ddgi_probe_base_position(base, v)) / v.spacing);
+	float3 grid_coord = (biased_world - v.origin) * inv_spacing + half_counts;
+	int3 base = int3(clamp(grid_coord, 0.0, float3(max_probe)));
+	float3 alpha = saturate(grid_coord - float3(base));
+
+	bool fixed_ready = v.reset_history == 0 && ddgi_uses_fixed_rays(v);
+	bool use_classification = fixed_ready && v.classification_enabled != 0;
+	bool use_relocation = fixed_ready && v.relocation_enabled != 0;
+	bool need_probe_data = use_classification || use_relocation;
+
+	float2 inv_counts_xz = rcp(float2(v.probe_counts.xz));
+	float2 dist_uv_bias = 0.5 * inv_counts_xz;
+	float2 dist_uv_scale = (7.0 / 16.0) * inv_counts_xz;
+	float2 irr_oct_uv = (0.5 + ddgi_oct_encode(n) * (3.0 / 8.0)) * inv_counts_xz;
+	float3 grid_origin_to_world = (v.origin - world) - half_counts * v.spacing;
+	float half_gamma = 0.5 * v.irradiance_gamma;
+
 	float3 sum = 0;
 	float weights = 0;
-	float2 oct = ddgi_oct_encode(n);
 	for (uint i = 0; i < 8; ++i)
 	{
 		int3 offset = int3(i, i >> 1, i >> 2) & 1;
-		int3 probe = min(base + offset, v.probe_counts - 1);
-		if (!ddgi_probe_is_active(probe, v, probes.probe_data))
+		int3 probe = min(base + offset, max_probe);
+		float4 pd = need_probe_data ? probes.probe_data.Load(int4(ddgi_probe_data_coord(probe), 0)) : float4(0);
+		if (use_classification && pd.w >= 0.5)
 			continue;
-		float3 to_probe = ddgi_probe_world_position(probe, v, probes.probe_data) - world;
-		float wrap = 0.5 * (dot(normalize_or(to_probe, n), n) + 1);
-		float weight = wrap * wrap + 0.2;
+
+		float3 p_coord = float3(probe) + (use_relocation ? pd.xyz : float3(0));
+		float3 to_probe = grid_origin_to_world + p_coord * v.spacing;
 		float3 biased = to_probe - bias;
-		float2 moments = 2 * probes.distance.SampleLevel(probes.linear_clamp, ddgi_get_probe_uv(probe, ddgi_oct_encode(normalize_or(-biased, n)), 14, v), 0);
-		float diff = length(biased) - moments.x;
+		float biased_len_sq = dot(biased, biased);
+		float2 dist_oct = ddgi_oct_encode(select(bool3(biased_len_sq > 1e-12), -biased, n));
+
+		float2 probe_uv = float2(probe.xz) * inv_counts_xz;
+		float2 moments = 2.0 * probes.distance.SampleLevel(probes.linear_clamp, float3(probe_uv + dist_uv_bias + dist_oct * dist_uv_scale, probe.y), 0);
+		float3 e = max(probes.irradiance.SampleLevel(probes.linear_clamp, float3(probe_uv + irr_oct_uv, probe.y), 0).rgb, 0.0);
+
+		float to_probe_len_sq = dot(to_probe, to_probe);
+		float ndotl = select(to_probe_len_sq > 1e-12, dot(to_probe, n) * rsqrt(max(to_probe_len_sq, 1e-12)), 1.0);
+		float wrap = 0.5 * ndotl + 0.5;
+		float weight = wrap * wrap + 0.2;
+
+		float diff = sqrt(biased_len_sq) - moments.x;
 		if (diff > 0)
 		{
 			float variance = abs(moments.x * moments.x - moments.y);
-			float visibility = variance / (variance + diff * diff);
+			float visibility = variance * rcp(variance + diff * diff);
 			weight *= max(0.05, visibility * visibility * visibility);
 		}
-		if (weight < 0.2)
-			weight *= weight * weight / (0.2 * 0.2);
-		float3 tri = max(0.001, lerp(1 - alpha, alpha, float3(offset)));
+		weight = select(weight < 0.2, weight * weight * weight * 25.0, weight);
+		float3 tri = max(0.001, select(offset != 0, alpha, 1.0 - alpha));
 		weight *= tri.x * tri.y * tri.z;
-		float3 encoded = probes.irradiance.SampleLevel(probes.linear_clamp, ddgi_get_probe_uv(probe, oct, 6, v), 0).rgb;
-		sum += weight * pow(max(encoded, 0), 0.5 * v.irradiance_gamma);
+
+		float3 dec = FastGamma5 ? (e * e * sqrt(e)) : pow(e, half_gamma);
+		sum += weight * dec;
 		weights += weight;
 	}
 	if (weights <= 0)
 		return float3(0);
-	sum /= weights;
+	sum *= rcp(weights);
 	return sum * sum * (2 * PI);
+}
+
+public float3 ddgi_get_volume_irradiance(float3 world, float3 bias, float3 n, DDGIVolumeData v, DDGIResources probes)
+{
+	if (v.irradiance_gamma == 5.0)
+		return ddgi_eval_volume_irradiance<true>(world, bias, n, v, probes);
+	return ddgi_eval_volume_irradiance<false>(world, bias, n, v, probes);
 }

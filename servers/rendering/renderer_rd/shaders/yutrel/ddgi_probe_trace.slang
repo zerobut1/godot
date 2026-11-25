@@ -40,12 +40,16 @@ void compute_main(uint3 tid : SV_DispatchThreadID)
 	int3 grid = int3(tid.y % volume.probe_counts.x, tid.z, tid.y / volume.probe_counts.x);
 	bool uses_fixed = ddgi_uses_fixed_rays(volume);
 	bool is_fixed_ray = uses_fixed && tid.x < DDGI_NUM_FIXED_RAYS;
-	bool active = ddgi_probe_is_active(grid, volume, probe_data);
+	bool fixed_ready = volume.reset_history == 0 && uses_fixed;
+	bool use_classification = fixed_ready && volume.classification_enabled != 0;
+	bool use_relocation = fixed_ready && volume.relocation_enabled != 0;
+	float4 pd = (use_classification || use_relocation) ? probe_data.Load(int4(ddgi_probe_data_coord(grid), 0)) : float4(0);
+	bool active = !use_classification || pd.w < 0.5;
 	if (!active && !is_fixed_ray)
 		return;
 
 	float3 dir = ddgi_ray_direction(tid.x, volume);
-	float3 probe_position = ddgi_probe_world_position(grid, volume, probe_data);
+	float3 probe_position = ddgi_probe_base_position(grid, volume) + (use_relocation ? pd.xyz * volume.spacing : float3(0));
 	RTHit hit = {};
 	bool found = false;
 	if (params.has_tlas != 0)

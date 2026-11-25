@@ -93,7 +93,7 @@ float3 incoming_radiance(float3 origin, float3 dir, float t_min, float r, float2
 	DDGIResources probes = { irradiance, distance_atlas, probe_data, linear_clamp };
 	float visibility;
 	float3 probe_diffuse;
-	float3 indirect = indirect_environment(hit.world_pos, N, dir, sky, sh, volume, probes, visibility, probe_diffuse);
+	float3 indirect = indirect_environment(hit.world_pos, N, dir, sky, sh, volume, probes, visibility, probe_diffuse, hit.surface.metallic > 0.01);
 	if (hit.surface.metallic > 0.01)
 	{
 		float3 R = inverse_sky_rotation(reflect(dir, N), params.sin_rot, params.cos_rot);
