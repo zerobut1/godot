@@ -30,20 +30,29 @@
 
 #pragma once
 
-#include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
-#include "servers/rendering/renderer_rd/yutrel/yutrel_shader.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_environment_settings.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_render_data.h"
 
 namespace RendererSceneRenderImplementation {
-
-struct YutrelPipelineTargets;
 
 class OutputPass {
 	YutrelShader output_shader;
 	PipelineCacheRD output_pipeline;
+	YutrelComputeShader bake;
+	RID uniform_buffer, black_fallback;
 
 public:
+	struct LutCache {
+		RID texture;
+		uint64_t hash = 0;
+		void clear();
+		~LutCache() { clear(); }
+	};
+
+	~OutputPass();
 	bool prepare();
-	void render(const YutrelPipelineTargets &p_targets, RID p_environment, RID p_color_override = RID());
+	void render(const YutrelPipelineTargets &p_targets, const YutrelEnvironmentSettings &p_environment, RID p_hdr,
+			LutCache *p_full_post = nullptr, RID p_exposure = RID(), RID p_bloom = RID());
 };
 
 } // namespace RendererSceneRenderImplementation

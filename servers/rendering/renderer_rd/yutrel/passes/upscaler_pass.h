@@ -30,12 +30,11 @@
 
 #pragma once
 
-#include "../yutrel_environment_settings.h"
-
 #include "core/math/projection.h"
 #include "core/math/transform_3d.h"
 #include "core/math/vector2.h"
 #include "core/math/vector2i.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_environment_settings.h"
 
 namespace RendererRD {
 class FSR2Effect;
@@ -78,7 +77,7 @@ public:
 	static uint32_t get_phase_count(Size2i p_render_size, Size2i p_display_size);
 	static Vector2 get_jitter(uint32_t p_index, uint32_t p_phases);
 	bool render(History &r_history, const YutrelPipelineTargets &p_targets, const Camera &p_camera,
-			const YutrelEnvironmentSettings &p_environment, bool p_has_transparency);
+			const YutrelEnvironmentSettings &p_environment, bool p_has_transparency, RID p_exposure_override = RID());
 };
 
 } // namespace RendererSceneRenderImplementation

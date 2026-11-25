@@ -100,6 +100,30 @@ struct YutrelEnvironmentSettings {
 	UpscalerMode upscaler_mode = UpscalerMode::OFF;
 	UpscalerQuality upscaler_quality = UpscalerQuality::NATIVE_AA;
 	float upscaler_sharpness = 0.2f;
+	float vignette_intensity = 0.0f;
+	float vignette_smoothness = 0.5f;
+	bool debanding_enabled = true;
+	bool auto_exposure_enabled = false;
+	float auto_exposure_min_ev = -6.0f;
+	float auto_exposure_max_ev = 6.0f;
+	float auto_exposure_compensation = 0.0f;
+	float auto_exposure_speed_up = 3.0f;
+	float auto_exposure_speed_down = 1.5f;
+	bool bloom_enabled = false;
+	float bloom_intensity = 0.15f;
+	float bloom_threshold = 1.0f;
+	float bloom_soft_knee = 0.5f;
+	float bloom_scatter = 0.65f;
+	float grading_temperature = 0.0f;
+	float grading_tint = 0.0f;
+	float grading_contrast = 1.0f;
+	float grading_saturation = 1.0f;
+	Color grading_shadows = Color(1, 1, 1);
+	Color grading_midtones = Color(1, 1, 1);
+	Color grading_highlights = Color(1, 1, 1);
+	RID grading_lut_rid;
+	uint64_t grading_lut_revision = 0;
+	float grading_lut_intensity = 1.0f;
 	uint64_t revision = 0;
 
 	static YutrelEnvironmentSettings get(RID p_environment) {

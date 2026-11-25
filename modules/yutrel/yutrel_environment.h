@@ -137,6 +137,75 @@ public:
 	void set_rt_reflection_samples(int p_samples);
 	int get_rt_reflection_samples() const { return rt_reflection_samples; }
 
+	void set_vignette_intensity(float p_value);
+	float get_vignette_intensity() const { return vignette_intensity; }
+
+	void set_vignette_smoothness(float p_value);
+	float get_vignette_smoothness() const { return vignette_smoothness; }
+
+	void set_debanding_enabled(bool p_value);
+	bool get_debanding_enabled() const { return debanding_enabled; }
+
+	void set_auto_exposure_enabled(bool p_value);
+	bool get_auto_exposure_enabled() const { return auto_exposure_enabled; }
+
+	void set_auto_exposure_min_ev(float p_value);
+	float get_auto_exposure_min_ev() const { return auto_exposure_min_ev; }
+
+	void set_auto_exposure_max_ev(float p_value);
+	float get_auto_exposure_max_ev() const { return auto_exposure_max_ev; }
+
+	void set_auto_exposure_compensation(float p_value);
+	float get_auto_exposure_compensation() const { return auto_exposure_compensation; }
+
+	void set_auto_exposure_speed_up(float p_value);
+	float get_auto_exposure_speed_up() const { return auto_exposure_speed_up; }
+
+	void set_auto_exposure_speed_down(float p_value);
+	float get_auto_exposure_speed_down() const { return auto_exposure_speed_down; }
+
+	void set_bloom_enabled(bool p_value);
+	bool get_bloom_enabled() const { return bloom_enabled; }
+
+	void set_bloom_intensity(float p_value);
+	float get_bloom_intensity() const { return bloom_intensity; }
+
+	void set_bloom_threshold(float p_value);
+	float get_bloom_threshold() const { return bloom_threshold; }
+
+	void set_bloom_soft_knee(float p_value);
+	float get_bloom_soft_knee() const { return bloom_soft_knee; }
+
+	void set_bloom_scatter(float p_value);
+	float get_bloom_scatter() const { return bloom_scatter; }
+
+	void set_grading_temperature(float p_value);
+	float get_grading_temperature() const { return grading_temperature; }
+
+	void set_grading_tint(float p_value);
+	float get_grading_tint() const { return grading_tint; }
+
+	void set_grading_contrast(float p_value);
+	float get_grading_contrast() const { return grading_contrast; }
+
+	void set_grading_saturation(float p_value);
+	float get_grading_saturation() const { return grading_saturation; }
+
+	void set_grading_shadows(const Color &p_value);
+	Color get_grading_shadows() const { return grading_shadows; }
+
+	void set_grading_midtones(const Color &p_value);
+	Color get_grading_midtones() const { return grading_midtones; }
+
+	void set_grading_highlights(const Color &p_value);
+	Color get_grading_highlights() const { return grading_highlights; }
+
+	void set_grading_lut(const Ref<Texture2D> &p_value);
+	Ref<Texture2D> get_grading_lut() const { return grading_lut; }
+
+	void set_grading_lut_intensity(float p_value);
+	float get_grading_lut_intensity() const { return grading_lut_intensity; }
+
 	PackedStringArray get_configuration_warnings() const override;
 
 protected:
@@ -167,6 +236,31 @@ private:
 	bool rt_reflection_half_resolution = true;
 	float rt_reflection_max_roughness = 0.6f;
 	int rt_reflection_samples = 1;
+	float vignette_intensity = 0.0f;
+	float vignette_smoothness = 0.5f;
+	bool debanding_enabled = true;
+	bool auto_exposure_enabled = false;
+	float auto_exposure_min_ev = -6.0f;
+	float auto_exposure_max_ev = 6.0f;
+	float auto_exposure_compensation = 0.0f;
+	float auto_exposure_speed_up = 3.0f;
+	float auto_exposure_speed_down = 1.5f;
+	bool bloom_enabled = false;
+	float bloom_intensity = 0.15f;
+	float bloom_threshold = 1.0f;
+	float bloom_soft_knee = 0.5f;
+	float bloom_scatter = 0.65f;
+	float grading_temperature = 0.0f;
+	float grading_tint = 0.0f;
+	float grading_contrast = 1.0f;
+	float grading_saturation = 1.0f;
+	Color grading_shadows = Color(1, 1, 1);
+	Color grading_midtones = Color(1, 1, 1);
+	Color grading_highlights = Color(1, 1, 1);
+	Ref<Texture2D> grading_lut;
+	float grading_lut_intensity = 1.0f;
+	uint64_t grading_lut_revision = 0;
+	void _grading_lut_changed();
 	Ref<Environment> internal_environment;
 	Ref<Environment> previous_environment;
 	Ref<World3D> world;

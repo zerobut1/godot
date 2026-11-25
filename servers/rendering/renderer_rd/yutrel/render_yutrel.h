@@ -30,7 +30,9 @@
 
 #pragma once
 
+#include "passes/auto_exposure_pass.h"
 #include "passes/base_pass.h"
+#include "passes/bloom_pass.h"
 #include "passes/csm_shadow_pass.h"
 #include "passes/ddgi_pass.h"
 #include "passes/debug_view_pass.h"
@@ -99,6 +101,8 @@ class RenderYutrel : public RendererSceneRenderRD {
 	IBLPass ibl_pass;
 	SkyboxPass skybox_pass;
 	TransparentPass transparent_pass;
+	AutoExposurePass auto_exposure_pass;
+	BloomPass bloom_pass;
 	OutputPass output_pass;
 	UpscalerPass upscaler_pass;
 	YutrelShader depth_copy_shader;

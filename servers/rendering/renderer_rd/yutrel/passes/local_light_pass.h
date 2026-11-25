@@ -30,7 +30,7 @@
 
 #pragma once
 
-#include "../yutrel_render_data.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_render_data.h"
 
 class RenderDataRD;
 

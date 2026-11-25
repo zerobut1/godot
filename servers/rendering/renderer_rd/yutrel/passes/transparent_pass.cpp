@@ -30,11 +30,10 @@
 
 #include "transparent_pass.h"
 
-#include "../yutrel_rt_scene.h"
-
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_rt_scene.h"
 
 namespace RendererSceneRenderImplementation {
 

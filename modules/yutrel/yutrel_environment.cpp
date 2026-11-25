@@ -152,6 +152,82 @@ void YutrelEnvironment::_bind_methods() {
 	ADD_GROUP("Tone Mapping", "");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "tone_mapping", PROPERTY_HINT_ENUM, "AgX,AgX Punchy,ACES,None"), "set_tone_mapping", "get_tone_mapping");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure", PROPERTY_HINT_RANGE, "0.0,16.0,0.05,or_greater"), "set_exposure", "get_exposure");
+	ADD_GROUP("Post Process", "");
+	ClassDB::bind_method(D_METHOD("set_vignette_intensity", "value"), &YutrelEnvironment::set_vignette_intensity);
+	ClassDB::bind_method(D_METHOD("get_vignette_intensity"), &YutrelEnvironment::get_vignette_intensity);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "vignette_intensity", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_vignette_intensity", "get_vignette_intensity");
+	ClassDB::bind_method(D_METHOD("set_vignette_smoothness", "value"), &YutrelEnvironment::set_vignette_smoothness);
+	ClassDB::bind_method(D_METHOD("get_vignette_smoothness"), &YutrelEnvironment::get_vignette_smoothness);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "vignette_smoothness", PROPERTY_HINT_RANGE, "0.05,1.0,0.01"), "set_vignette_smoothness", "get_vignette_smoothness");
+	ClassDB::bind_method(D_METHOD("set_debanding_enabled", "value"), &YutrelEnvironment::set_debanding_enabled);
+	ClassDB::bind_method(D_METHOD("get_debanding_enabled"), &YutrelEnvironment::get_debanding_enabled);
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debanding_enabled"), "set_debanding_enabled", "get_debanding_enabled");
+
+	ADD_GROUP("Auto Exposure", "auto_exposure_");
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_enabled", "value"), &YutrelEnvironment::set_auto_exposure_enabled);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_enabled"), &YutrelEnvironment::get_auto_exposure_enabled);
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "auto_exposure_enabled"), "set_auto_exposure_enabled", "get_auto_exposure_enabled");
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_min_ev", "value"), &YutrelEnvironment::set_auto_exposure_min_ev);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_min_ev"), &YutrelEnvironment::get_auto_exposure_min_ev);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_min_ev", PROPERTY_HINT_RANGE, "-12.0,12.0,0.1"), "set_auto_exposure_min_ev", "get_auto_exposure_min_ev");
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_max_ev", "value"), &YutrelEnvironment::set_auto_exposure_max_ev);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_max_ev"), &YutrelEnvironment::get_auto_exposure_max_ev);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_max_ev", PROPERTY_HINT_RANGE, "-12.0,12.0,0.1"), "set_auto_exposure_max_ev", "get_auto_exposure_max_ev");
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_compensation", "value"), &YutrelEnvironment::set_auto_exposure_compensation);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_compensation"), &YutrelEnvironment::get_auto_exposure_compensation);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_compensation", PROPERTY_HINT_RANGE, "-8.0,8.0,0.05"), "set_auto_exposure_compensation", "get_auto_exposure_compensation");
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_speed_up", "value"), &YutrelEnvironment::set_auto_exposure_speed_up);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_speed_up"), &YutrelEnvironment::get_auto_exposure_speed_up);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_speed_up", PROPERTY_HINT_RANGE, "0.05,20.0,0.05"), "set_auto_exposure_speed_up", "get_auto_exposure_speed_up");
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_speed_down", "value"), &YutrelEnvironment::set_auto_exposure_speed_down);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_speed_down"), &YutrelEnvironment::get_auto_exposure_speed_down);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_speed_down", PROPERTY_HINT_RANGE, "0.05,20.0,0.05"), "set_auto_exposure_speed_down", "get_auto_exposure_speed_down");
+
+	ADD_GROUP("Bloom", "bloom_");
+	ClassDB::bind_method(D_METHOD("set_bloom_enabled", "value"), &YutrelEnvironment::set_bloom_enabled);
+	ClassDB::bind_method(D_METHOD("get_bloom_enabled"), &YutrelEnvironment::get_bloom_enabled);
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "bloom_enabled"), "set_bloom_enabled", "get_bloom_enabled");
+	ClassDB::bind_method(D_METHOD("set_bloom_intensity", "value"), &YutrelEnvironment::set_bloom_intensity);
+	ClassDB::bind_method(D_METHOD("get_bloom_intensity"), &YutrelEnvironment::get_bloom_intensity);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "bloom_intensity", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_greater"), "set_bloom_intensity", "get_bloom_intensity");
+	ClassDB::bind_method(D_METHOD("set_bloom_threshold", "value"), &YutrelEnvironment::set_bloom_threshold);
+	ClassDB::bind_method(D_METHOD("get_bloom_threshold"), &YutrelEnvironment::get_bloom_threshold);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "bloom_threshold", PROPERTY_HINT_RANGE, "0.0,16.0,0.05,or_greater"), "set_bloom_threshold", "get_bloom_threshold");
+	ClassDB::bind_method(D_METHOD("set_bloom_soft_knee", "value"), &YutrelEnvironment::set_bloom_soft_knee);
+	ClassDB::bind_method(D_METHOD("get_bloom_soft_knee"), &YutrelEnvironment::get_bloom_soft_knee);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "bloom_soft_knee", PROPERTY_HINT_RANGE, "0.0,1.0,0.02"), "set_bloom_soft_knee", "get_bloom_soft_knee");
+	ClassDB::bind_method(D_METHOD("set_bloom_scatter", "value"), &YutrelEnvironment::set_bloom_scatter);
+	ClassDB::bind_method(D_METHOD("get_bloom_scatter"), &YutrelEnvironment::get_bloom_scatter);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "bloom_scatter", PROPERTY_HINT_RANGE, "0.05,0.95,0.02"), "set_bloom_scatter", "get_bloom_scatter");
+
+	ADD_GROUP("Color Grading", "grading_");
+	ClassDB::bind_method(D_METHOD("set_grading_temperature", "value"), &YutrelEnvironment::set_grading_temperature);
+	ClassDB::bind_method(D_METHOD("get_grading_temperature"), &YutrelEnvironment::get_grading_temperature);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grading_temperature", PROPERTY_HINT_RANGE, "-1.0,1.0,0.01"), "set_grading_temperature", "get_grading_temperature");
+	ClassDB::bind_method(D_METHOD("set_grading_tint", "value"), &YutrelEnvironment::set_grading_tint);
+	ClassDB::bind_method(D_METHOD("get_grading_tint"), &YutrelEnvironment::get_grading_tint);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grading_tint", PROPERTY_HINT_RANGE, "-1.0,1.0,0.01"), "set_grading_tint", "get_grading_tint");
+	ClassDB::bind_method(D_METHOD("set_grading_contrast", "value"), &YutrelEnvironment::set_grading_contrast);
+	ClassDB::bind_method(D_METHOD("get_grading_contrast"), &YutrelEnvironment::get_grading_contrast);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grading_contrast", PROPERTY_HINT_RANGE, "0.0,2.0,0.01"), "set_grading_contrast", "get_grading_contrast");
+	ClassDB::bind_method(D_METHOD("set_grading_saturation", "value"), &YutrelEnvironment::set_grading_saturation);
+	ClassDB::bind_method(D_METHOD("get_grading_saturation"), &YutrelEnvironment::get_grading_saturation);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grading_saturation", PROPERTY_HINT_RANGE, "0.0,2.0,0.01"), "set_grading_saturation", "get_grading_saturation");
+	ClassDB::bind_method(D_METHOD("set_grading_shadows", "value"), &YutrelEnvironment::set_grading_shadows);
+	ClassDB::bind_method(D_METHOD("get_grading_shadows"), &YutrelEnvironment::get_grading_shadows);
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "grading_shadows", PROPERTY_HINT_COLOR_NO_ALPHA), "set_grading_shadows", "get_grading_shadows");
+	ClassDB::bind_method(D_METHOD("set_grading_midtones", "value"), &YutrelEnvironment::set_grading_midtones);
+	ClassDB::bind_method(D_METHOD("get_grading_midtones"), &YutrelEnvironment::get_grading_midtones);
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "grading_midtones", PROPERTY_HINT_COLOR_NO_ALPHA), "set_grading_midtones", "get_grading_midtones");
+	ClassDB::bind_method(D_METHOD("set_grading_highlights", "value"), &YutrelEnvironment::set_grading_highlights);
+	ClassDB::bind_method(D_METHOD("get_grading_highlights"), &YutrelEnvironment::get_grading_highlights);
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "grading_highlights", PROPERTY_HINT_COLOR_NO_ALPHA), "set_grading_highlights", "get_grading_highlights");
+	ClassDB::bind_method(D_METHOD("set_grading_lut", "value"), &YutrelEnvironment::set_grading_lut);
+	ClassDB::bind_method(D_METHOD("get_grading_lut"), &YutrelEnvironment::get_grading_lut);
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "grading_lut", PROPERTY_HINT_RESOURCE_TYPE, "Texture2D"), "set_grading_lut", "get_grading_lut");
+	ClassDB::bind_method(D_METHOD("set_grading_lut_intensity", "value"), &YutrelEnvironment::set_grading_lut_intensity);
+	ClassDB::bind_method(D_METHOD("get_grading_lut_intensity"), &YutrelEnvironment::get_grading_lut_intensity);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "grading_lut_intensity", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_grading_lut_intensity", "get_grading_lut_intensity");
 }
 
 void YutrelEnvironment::_notification(int p_what) {
@@ -317,33 +393,242 @@ void YutrelEnvironment::set_rt_reflection_samples(int p_samples) {
 	_publish_settings();
 }
 
+void YutrelEnvironment::set_vignette_intensity(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	vignette_intensity = CLAMP(p_value, 0.0f, 1.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_vignette_smoothness(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	vignette_smoothness = CLAMP(p_value, 0.05f, 1.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_debanding_enabled(bool p_value) {
+	debanding_enabled = p_value;
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_auto_exposure_enabled(bool p_value) {
+	auto_exposure_enabled = p_value;
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_auto_exposure_min_ev(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	auto_exposure_min_ev = CLAMP(p_value, -12.0f, 12.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_auto_exposure_max_ev(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	auto_exposure_max_ev = CLAMP(p_value, -12.0f, 12.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_auto_exposure_compensation(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	auto_exposure_compensation = CLAMP(p_value, -8.0f, 8.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_auto_exposure_speed_up(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	auto_exposure_speed_up = CLAMP(p_value, 0.01f, 20.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_auto_exposure_speed_down(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	auto_exposure_speed_down = CLAMP(p_value, 0.01f, 20.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_bloom_enabled(bool p_value) {
+	bloom_enabled = p_value;
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_bloom_intensity(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	bloom_intensity = CLAMP(p_value, 0.0f, 4.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_bloom_threshold(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	bloom_threshold = CLAMP(p_value, 0.0f, 64.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_bloom_soft_knee(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	bloom_soft_knee = CLAMP(p_value, 0.0f, 1.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_bloom_scatter(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	bloom_scatter = CLAMP(p_value, 0.05f, 0.95f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_grading_temperature(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	grading_temperature = CLAMP(p_value, -1.0f, 1.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_grading_tint(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	grading_tint = CLAMP(p_value, -1.0f, 1.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_grading_contrast(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	grading_contrast = CLAMP(p_value, 0.0f, 2.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_grading_saturation(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	grading_saturation = CLAMP(p_value, 0.0f, 2.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_grading_shadows(const Color &p_value) {
+	if (!Math::is_finite(p_value.r) || !Math::is_finite(p_value.g) || !Math::is_finite(p_value.b) || !Math::is_finite(p_value.a)) {
+		return;
+	}
+	grading_shadows = Color(CLAMP(p_value.r, 0.0f, 1.0f), CLAMP(p_value.g, 0.0f, 1.0f), CLAMP(p_value.b, 0.0f, 1.0f));
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_grading_midtones(const Color &p_value) {
+	if (!Math::is_finite(p_value.r) || !Math::is_finite(p_value.g) || !Math::is_finite(p_value.b) || !Math::is_finite(p_value.a)) {
+		return;
+	}
+	grading_midtones = Color(CLAMP(p_value.r, 0.0f, 1.0f), CLAMP(p_value.g, 0.0f, 1.0f), CLAMP(p_value.b, 0.0f, 1.0f));
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_grading_highlights(const Color &p_value) {
+	if (!Math::is_finite(p_value.r) || !Math::is_finite(p_value.g) || !Math::is_finite(p_value.b) || !Math::is_finite(p_value.a)) {
+		return;
+	}
+	grading_highlights = Color(CLAMP(p_value.r, 0.0f, 1.0f), CLAMP(p_value.g, 0.0f, 1.0f), CLAMP(p_value.b, 0.0f, 1.0f));
+	_publish_settings();
+}
+
+void YutrelEnvironment::set_grading_lut(const Ref<Texture2D> &p_value) {
+	if (grading_lut == p_value) {
+		return;
+	}
+	if (grading_lut.is_valid()) {
+		grading_lut->disconnect_changed(callable_mp(this, &YutrelEnvironment::_grading_lut_changed));
+	}
+	grading_lut = p_value;
+	if (grading_lut.is_valid()) {
+		grading_lut->connect_changed(callable_mp(this, &YutrelEnvironment::_grading_lut_changed));
+	}
+	_grading_lut_changed();
+}
+
+void YutrelEnvironment::set_grading_lut_intensity(float p_value) {
+	if (!Math::is_finite(p_value)) {
+		return;
+	}
+	grading_lut_intensity = CLAMP(p_value, 0.0f, 1.0f);
+	_publish_settings();
+}
+
+void YutrelEnvironment::_grading_lut_changed() {
+	++grading_lut_revision;
+	_publish_settings();
+}
+
 void YutrelEnvironment::_publish_settings() {
 	if (world.is_valid()) {
-		const YutrelEnvironmentSettings settings = {
-			ToneMappingMode(tone_mapping),
-			exposure,
-			RendererSceneRenderImplementation::SkyMode(sky_mode),
-			sky_color.srgb_to_linear(),
-			sky_texture.is_valid() ? sky_texture->get_rid() : RID(),
-			sky_intensity,
-			Math::deg_to_rad(sky_rotation),
-			RendererSceneRenderImplementation::ShadowMode(shadow_mode),
-			shadow_resolution,
-			shadow_rt_half_resolution,
-			shadow_rt_samples,
-			rtao_enabled,
-			rtao_half_resolution,
-			rtao_radius,
-			rtao_intensity,
-			rtao_samples,
-			rt_reflection_enabled,
-			rt_reflection_half_resolution,
-			rt_reflection_max_roughness,
-			rt_reflection_samples,
-			RendererSceneRenderImplementation::UpscalerMode(upscaler_mode),
-			RendererSceneRenderImplementation::UpscalerQuality(upscaler_quality),
-			upscaler_sharpness,
-		};
+		YutrelEnvironmentSettings settings;
+		settings.tone_mapping = ToneMappingMode(tone_mapping);
+		settings.exposure = exposure;
+		settings.sky_mode = RendererSceneRenderImplementation::SkyMode(sky_mode);
+		settings.linear_sky_color = sky_color.srgb_to_linear();
+		settings.sky_texture_rid = sky_texture.is_valid() ? sky_texture->get_rid() : RID();
+		settings.sky_intensity = sky_intensity;
+		settings.sky_rotation_radians = Math::deg_to_rad(sky_rotation);
+		settings.shadow_mode = RendererSceneRenderImplementation::ShadowMode(shadow_mode);
+		settings.shadow_resolution = shadow_resolution;
+		settings.shadow_rt_half_resolution = shadow_rt_half_resolution;
+		settings.shadow_rt_samples = shadow_rt_samples;
+		settings.rtao_enabled = rtao_enabled;
+		settings.rtao_half_resolution = rtao_half_resolution;
+		settings.rtao_radius = rtao_radius;
+		settings.rtao_intensity = rtao_intensity;
+		settings.rtao_samples = rtao_samples;
+		settings.rt_reflection_enabled = rt_reflection_enabled;
+		settings.rt_reflection_half_resolution = rt_reflection_half_resolution;
+		settings.rt_reflection_max_roughness = rt_reflection_max_roughness;
+		settings.rt_reflection_samples = rt_reflection_samples;
+		settings.upscaler_mode = RendererSceneRenderImplementation::UpscalerMode(upscaler_mode);
+		settings.upscaler_quality = RendererSceneRenderImplementation::UpscalerQuality(upscaler_quality);
+		settings.upscaler_sharpness = upscaler_sharpness;
+		settings.vignette_intensity = vignette_intensity;
+		settings.vignette_smoothness = vignette_smoothness;
+		settings.debanding_enabled = debanding_enabled;
+		settings.auto_exposure_enabled = auto_exposure_enabled;
+		settings.auto_exposure_min_ev = auto_exposure_min_ev;
+		settings.auto_exposure_max_ev = auto_exposure_max_ev;
+		settings.auto_exposure_compensation = auto_exposure_compensation;
+		settings.auto_exposure_speed_up = auto_exposure_speed_up;
+		settings.auto_exposure_speed_down = auto_exposure_speed_down;
+		settings.bloom_enabled = bloom_enabled;
+		settings.bloom_intensity = bloom_intensity;
+		settings.bloom_threshold = bloom_threshold;
+		settings.bloom_soft_knee = bloom_soft_knee;
+		settings.bloom_scatter = bloom_scatter;
+		settings.grading_temperature = grading_temperature;
+		settings.grading_tint = grading_tint;
+		settings.grading_contrast = grading_contrast;
+		settings.grading_saturation = grading_saturation;
+		settings.grading_shadows = grading_shadows.srgb_to_linear();
+		settings.grading_midtones = grading_midtones.srgb_to_linear();
+		settings.grading_highlights = grading_highlights.srgb_to_linear();
+		settings.grading_lut_rid = grading_lut.is_valid() ? grading_lut->get_rid() : RID();
+		settings.grading_lut_revision = grading_lut_revision;
+		settings.grading_lut_intensity = grading_lut_intensity;
 		YutrelEnvironmentSettings::set(internal_environment->get_rid(), settings);
 		RenderingServerDefault::redraw_request();
 	}

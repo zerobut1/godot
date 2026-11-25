@@ -7,7 +7,7 @@ public struct OutputData
 	public float exposure;
 };
 
-float3 tonemap_agx(float3 color, bool punchy)
+public float3 tonemap_agx(float3 color, bool punchy)
 {
 	// Troy Sobotka's AgX with the minimal 6th-order polynomial sigmoid fit.
 	const float3x3 inset = float3x3(
@@ -31,7 +31,7 @@ float3 tonemap_agx(float3 color, bool punchy)
 	return pow(saturate(mul(outset, view)), 2.2);
 }
 
-float3 tonemap_aces(float3 color)
+public float3 tonemap_aces(float3 color)
 {
 	// ACES RRT/ODT fit in linear Rec.709, adapted from BakingLab.
 	const float3x3 rgb_to_rrt = float3x3(

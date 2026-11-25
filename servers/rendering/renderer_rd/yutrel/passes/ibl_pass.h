@@ -97,6 +97,18 @@ public:
 	bool prepare_environment(const YutrelEnvironmentSettings &p_environment);
 	RID get_source_cubemap() const { return baked ? source.texture : RID(); }
 	uint64_t get_bake_version() const { return bake_version; }
+#ifdef TOOLS_ENABLED
+	// The shared cubemap can be rebaked when switching between editor worlds.
+	// Use its inputs for convergence so an unrelated viewport cannot restart it.
+	uint64_t get_bake_input_hash() const {
+		uint64_t hash = hash_murmur3_buffer(&baked_key.color, sizeof(Color), uint32_t(baked_key.mode));
+		hash = hash_djb2_one_64(baked_key.panorama.get_id(), hash);
+		for (uint64_t version : baked_key.shader_versions) {
+			hash = hash_djb2_one_64(version, hash);
+		}
+		return hash;
+	}
+#endif
 	RID get_prefilter_cubemap() const { return filtered.texture; }
 	RID get_sh_buffer() const { return sh_buffer; }
 	static constexpr float get_prefilter_max_mip() { return PREFILTER_MIPS - 1.0f; }

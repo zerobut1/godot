@@ -1,0 +1,27 @@
+[gd_scene format=3]
+
+[sub_resource type="StandardMaterial3D" id="Emitter"]
+shading_mode = 0
+albedo_color = Color(0, 0, 0, 1)
+emission_enabled = true
+emission = Color(1, 0.8, 0.4, 1)
+emission_energy_multiplier = 8.0
+
+[sub_resource type="BoxMesh" id="Box"]
+material = SubResource("Emitter")
+
+[node name="PostprocessTest" type="Node3D"]
+
+[node name="Environment" type="YutrelEnvironment" parent="."]
+sky_color = Color(1, 1, 1, 1)
+sky_intensity = 0.5
+rtao_enabled = false
+rt_reflection_enabled = false
+auto_exposure_enabled = true
+bloom_enabled = true
+grading_temperature = 0.25
+vignette_intensity = 0.5
+
+[node name="Box" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0, -4)
+mesh = SubResource("Box")

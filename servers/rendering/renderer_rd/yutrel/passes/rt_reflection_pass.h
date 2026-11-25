@@ -30,10 +30,11 @@
 
 #pragma once
 
-#include "../yutrel_rt_scene.h"
 #include "directional_light_pass.h"
-#include "local_light_pass.h"
 #include "ibl_pass.h"
+#include "local_light_pass.h"
+
+#include "servers/rendering/renderer_rd/yutrel/yutrel_rt_scene.h"
 
 namespace RendererSceneRenderImplementation {
 

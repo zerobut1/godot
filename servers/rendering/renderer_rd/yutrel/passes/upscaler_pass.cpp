@@ -30,8 +30,8 @@
 
 #include "upscaler_pass.h"
 
-#include "../yutrel_render_data.h"
 #include "servers/rendering/renderer_rd/effects/fsr2.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_render_data.h"
 
 namespace RendererSceneRenderImplementation {
 
@@ -73,7 +73,7 @@ UpscalerPass::~UpscalerPass() {
 }
 
 bool UpscalerPass::render(History &h, const YutrelPipelineTargets &p_targets, const Camera &p_camera,
-		const YutrelEnvironmentSettings &p_environment, bool p_has_transparency) {
+		const YutrelEnvironmentSettings &p_environment, bool p_has_transparency, RID p_exposure_override) {
 	ERR_FAIL_COND_V(p_environment.upscaler_mode != UpscalerMode::FSR2, false);
 	if (!fsr2) {
 		fsr2 = memnew(RendererRD::FSR2Effect);
@@ -92,7 +92,7 @@ bool UpscalerPass::render(History &h, const YutrelPipelineTargets &p_targets, co
 	}
 
 	const float exposure = MAX(p_environment.exposure, 1e-4f);
-	if (h.exposure != exposure) {
+	if (p_exposure_override.is_null() && h.exposure != exposure) {
 		Vector<uint8_t> data;
 		const float values[] = { exposure, 0 };
 		data.resize(sizeof(values));
@@ -117,7 +117,7 @@ bool UpscalerPass::render(History &h, const YutrelPipelineTargets &p_targets, co
 	params.depth = p_targets.scene_depth;
 	params.velocity = p_targets.velocity;
 	params.reactive = p_has_transparency ? p_targets.reactive_mask : RID();
-	params.exposure = h.exposure_texture;
+	params.exposure = p_exposure_override.is_valid() ? p_exposure_override : h.exposure_texture;
 	params.output = p_targets.upscaled_color;
 	params.z_near = p_camera.z_far;
 	params.z_far = p_camera.z_near;

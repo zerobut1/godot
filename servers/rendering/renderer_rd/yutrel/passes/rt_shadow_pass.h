@@ -30,8 +30,8 @@
 
 #pragma once
 
-#include "../yutrel_environment_settings.h"
-#include "../yutrel_rt_scene.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_environment_settings.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_rt_scene.h"
 
 namespace RendererSceneRenderImplementation {
 

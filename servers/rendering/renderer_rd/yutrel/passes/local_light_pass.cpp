@@ -30,11 +30,10 @@
 
 #include "local_light_pass.h"
 
-#include "../yutrel_rt_scene.h"
-
 #include "servers/rendering/renderer_rd/storage_rd/light_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_data_rd.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
+#include "servers/rendering/renderer_rd/yutrel/yutrel_rt_scene.h"
 #include "servers/rendering/renderer_scene_cull.h"
 
 namespace RendererSceneRenderImplementation {

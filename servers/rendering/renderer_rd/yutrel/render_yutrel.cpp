@@ -64,6 +64,9 @@ public:
 	uint64_t pt_state_hash = 0;
 	uint32_t pt_sample_count = 0;
 
+	AutoExposurePass::History auto_exposure_history;
+	BloomPass::History bloom_history;
+	OutputPass::LutCache grading_lut;
 	UpscalerPass::History upscaler_history;
 	bool has_prev_camera = false;
 	bool prev_orthogonal = false;
@@ -79,7 +82,7 @@ public:
 	UpscalerQuality prev_quality = UpscalerQuality::NATIVE_AA;
 	uint32_t jitter_index = 0;
 #ifdef TOOLS_ENABLED
-	uint32_t upscaler_converged_frames = 0;
+	uint32_t converged_frames = 0;
 	uint64_t prev_scene_hash = 0;
 #endif
 
@@ -90,6 +93,9 @@ public:
 		has_prev_camera = false;
 		prev_render_size = Size2i();
 		jitter_index = 0;
+		auto_exposure_history.clear();
+		bloom_history.clear();
+		grading_lut.clear();
 		upscaler_history.clear();
 		path_tracer_accum = RID();
 		pt_sample_count = 0;
@@ -325,6 +331,12 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	if (!_prepare_targets(*p_render_data, enable, environment.upscaler_quality, targets)) {
 		return;
 	}
+	if (!environment.auto_exposure_enabled) {
+		custom->auto_exposure_history.clear();
+	}
+	if (!environment.bloom_enabled || environment.bloom_intensity <= 0.0f) {
+		custom->bloom_history.clear();
+	}
 	const bool active = targets.upscaled_color.is_valid();
 	const Size2i render_size = targets.region.size;
 	const Size2i display_size = targets.output_region.size;
@@ -411,8 +423,7 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 		ERR_FAIL_COND(targets.path_tracer_accum.is_null() || !rt_scene.update(*p_render_data, material_bridge));
 		RENDER_TIMESTAMP("Yutrel Path Tracer");
 		ERR_FAIL_COND(!path_tracer_pass.render(targets, frame_buffer, frame, lights, local_light_pass, environment, ibl_pass, rt_scene, custom->pt_state_hash, custom->pt_sample_count));
-		RENDER_TIMESTAMP("Yutrel Output");
-		output_pass.render(targets, p_render_data->environment, targets.path_tracer_accum);
+		output_pass.render(targets, environment, targets.path_tracer_accum);
 #ifdef TOOLS_ENABLED
 		if (Engine::get_singleton()->is_editor_hint()) {
 			RENDER_TIMESTAMP("Yutrel Editor Gizmos");
@@ -582,28 +593,29 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 
 	if (active) {
 		RENDER_TIMESTAMP("Yutrel Temporal Upscale");
-		ERR_FAIL_COND(!upscaler_pass.render(custom->upscaler_history, targets, camera, environment, draw_transparent));
-#ifdef TOOLS_ENABLED
-		if (Engine::get_singleton()->is_editor_hint()) {
-			uint64_t hash = hash_djb2_one_64(environment.revision, local_light_pass.get_hash());
-			hash = hash_djb2_one_64(ibl_pass.get_bake_version(), hash);
-			hash = hash_djb2_one_64(volume.config_version, hash);
-			if (rt_ready) {
-				hash = hash_djb2_one_64(rt_scene.get_scene_hash(), hash);
-			}
-			hash = base_pass.get_render_hash(hash);
-			hash = transparent_pass.get_render_hash(hash);
-			for (const auto &light : lights) {
-				hash = rt_hash_bytes(hash, &light.params, sizeof(light.params));
-			}
-			custom->upscaler_converged_frames = stationary_camera && hash == custom->prev_scene_hash ? MIN(custom->upscaler_converged_frames + 1, phases) : 0;
-			custom->prev_scene_hash = hash;
-			if (custom->upscaler_converged_frames < phases && DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {
-				RenderingServerDefault::redraw_request();
-			}
-		}
-#endif
+		ERR_FAIL_COND(!upscaler_pass.render(custom->upscaler_history, targets, camera, environment, draw_transparent, custom->auto_exposure_history.get_exposure_texture()));
 	}
+#ifdef TOOLS_ENABLED
+	if ((active || (final && environment.auto_exposure_enabled)) && Engine::get_singleton()->is_editor_hint()) {
+		uint64_t hash = hash_djb2_one_64(environment.revision, local_light_pass.get_hash());
+		hash = hash_djb2_one_64(ibl_pass.get_bake_input_hash(), hash);
+		hash = hash_djb2_one_64(volume.config_version, hash);
+		if (rt_ready) {
+			hash = hash_djb2_one_64(rt_scene.get_scene_hash(), hash);
+		}
+		hash = base_pass.get_render_hash(hash);
+		hash = transparent_pass.get_render_hash(hash);
+		for (const auto &light : lights) {
+			hash = rt_hash_bytes(hash, &light.params, sizeof(light.params));
+		}
+		const uint32_t convergence_frames = environment.auto_exposure_enabled ? MAX(90u, phases) : phases;
+		custom->converged_frames = stationary_camera && hash == custom->prev_scene_hash ? MIN(custom->converged_frames + 1, convergence_frames) : 0;
+		custom->prev_scene_hash = hash;
+		if (custom->converged_frames < convergence_frames && DisplayServer::get_singleton() && DisplayServer::get_singleton()->window_is_focused()) {
+			RenderingServerDefault::redraw_request();
+		}
+	}
+#endif
 	bool copy_depth = probes;
 #ifdef TOOLS_ENABLED
 	copy_depth |= editor_gizmos.has_draws();
@@ -614,8 +626,18 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	}
 
 	if (final || indirect_only) {
-		RENDER_TIMESTAMP("Yutrel Output");
-		output_pass.render(targets, p_render_data->environment, targets.upscaled_color);
+		const RID hdr = active ? targets.upscaled_color : targets.scene_color;
+		RID exposure;
+		if (final && environment.auto_exposure_enabled) {
+			ERR_FAIL_COND(!auto_exposure_pass.render(custom->auto_exposure_history, hdr, targets.output_region, environment, scene.time_step));
+			exposure = custom->auto_exposure_history.get_exposure_texture();
+		}
+		RID bloom;
+		if (final && environment.bloom_enabled && environment.bloom_intensity > 0.0f) {
+			bloom = bloom_pass.render(custom->bloom_history, hdr, exposure, targets.output_region, environment);
+			ERR_FAIL_COND(bloom.is_null());
+		}
+		output_pass.render(targets, environment, hdr, final ? &custom->grading_lut : nullptr, exposure, bloom);
 		if (probes && ddgi_ready) {
 			RENDER_TIMESTAMP("Yutrel DDGI Probes");
 			ddgi_pass.draw_probes(targets, frame_buffer, custom->ddgi_history, environment);
