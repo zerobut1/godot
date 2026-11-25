@@ -383,7 +383,8 @@ void RenderYutrel::_render_scene(RenderDataRD *p_render_data, const Color &p_def
 	custom->prev_view = settings.debug_view;
 	custom->prev_upscaler_active = active;
 	custom->has_prev_camera = false;
-	material_bridge.set_mip_lod_bias(active ? std::log2(float(render_size.x) / display_size.x) - 0.5f : 0.0f);
+	const int anisotropy_level = CLAMP(p_render_data->render_buffers->get_samplers().anisotropic_filtering_level, 0, 4);
+	material_bridge.set_sampler_state(active ? std::log2(float(render_size.x) / display_size.x) - 0.5f : 0.0f, float(1 << anisotropy_level));
 	if (frame_buffer.is_null()) {
 		frame_buffer = rd->uniform_buffer_create(sizeof(frame));
 		ERR_FAIL_COND(frame_buffer.is_null());

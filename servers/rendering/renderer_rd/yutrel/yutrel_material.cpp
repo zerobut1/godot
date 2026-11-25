@@ -208,9 +208,13 @@ YutrelMaterialBridge::~YutrelMaterialBridge() {
 	materials->material_set_data_request_function(MaterialStorage::SHADER_TYPE_3D, nullptr);
 	materials->shader_set_data_request_function(MaterialStorage::SHADER_TYPE_3D, nullptr);
 	RD *rd = RD::get_singleton();
-	if (biased_sampler.is_valid()) {
-		rd->free_rid(biased_sampler);
+	for (const KeyValue<uint64_t, RID> &E : material_samplers) {
+		if (E.value.is_valid()) {
+			rd->free_rid(E.value);
+		}
 	}
+	material_samplers.clear();
+	active_sampler = RID();
 	if (white_texture.is_valid()) {
 		rd->free_rid(white_texture);
 	}
@@ -378,26 +382,31 @@ bool YutrelMaterialBridge::get_material(RID p_material, Material &r_material) {
 	return true;
 }
 
-void YutrelMaterialBridge::set_mip_lod_bias(float p_bias) {
-	use_biased_sampler = p_bias != 0;
-	if (!use_biased_sampler || (p_bias == cached_bias && biased_sampler.is_valid())) {
+void YutrelMaterialBridge::set_sampler_state(float p_mip_lod_bias, float p_anisotropy_max) {
+	const float bias = p_mip_lod_bias == 0.0f ? 0.0f : p_mip_lod_bias;
+	const float anisotropy = CLAMP(p_anisotropy_max, 1.0f, 16.0f);
+	uint32_t bias_bits = 0;
+	memcpy(&bias_bits, &bias, sizeof(bias_bits));
+	const uint64_t key = (uint64_t(bias_bits) << 32) | uint32_t(anisotropy);
+	if (const RID *cached = material_samplers.getptr(key); cached && cached->is_valid()) {
+		active_sampler = *cached;
 		return;
 	}
-	RD *rd = RD::get_singleton();
-	if (biased_sampler.is_valid()) {
-		rd->free_rid(biased_sampler);
-	}
-	// Match the bridge's default LINEAR_WITH_MIPMAPS repeat sampler.
 	RD::SamplerState state;
 	state.mag_filter = state.min_filter = state.mip_filter = RD::SAMPLER_FILTER_LINEAR;
 	state.repeat_u = state.repeat_v = state.repeat_w = RD::SAMPLER_REPEAT_MODE_REPEAT;
-	state.lod_bias = p_bias;
-	biased_sampler = rd->sampler_create(state);
-	cached_bias = p_bias;
+	state.lod_bias = bias;
+	state.use_anisotropy = anisotropy > 1.0f;
+	state.anisotropy_max = anisotropy;
+	const RID sampler = RD::get_singleton()->sampler_create(state);
+	if (sampler.is_valid()) {
+		material_samplers.insert(key, sampler);
+		active_sampler = sampler;
+	}
 }
 
 RID YutrelMaterialBridge::get_material_sampler() const {
-	return use_biased_sampler ? biased_sampler : MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS, RSE::CANVAS_ITEM_TEXTURE_REPEAT_ENABLED);
+	return active_sampler.is_valid() ? active_sampler : MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC, RSE::CANVAS_ITEM_TEXTURE_REPEAT_ENABLED);
 }
 
 RID YutrelMaterialBridge::get_uniform_set(RID p_shader, const Material &p_material) const {
